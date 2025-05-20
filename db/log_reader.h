@@ -24,6 +24,10 @@
 #include "util/udt_util.h"
 #include "util/xxhash.h"
 
+extern "C" {
+  #include "sst-c-api/c_api.h"
+}
+
 namespace ROCKSDB_NAMESPACE {
 class Logger;
 
@@ -58,6 +62,9 @@ class Reader {
   Reader(std::shared_ptr<Logger> info_log,
          std::unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
          bool checksum, uint64_t log_num);
+  Reader(std::shared_ptr<Logger> info_log,
+         std::unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
+         bool checksum, uint64_t log_num, SST_ctx_t* sst_ctx, std::string skey_pwd);
   // No copying allowed
   Reader(const Reader&) = delete;
   void operator=(const Reader&) = delete;
@@ -167,6 +174,10 @@ class Reader {
   // The recorded user-defined timestamp sizes that have been read so far. This
   // is only for WAL logs.
   UnorderedMap<uint32_t, size_t> recorded_cf_to_ts_sz_;
+
+  SST_ctx_t* sst_ctx_;
+  session_key_list_t* s_key_list_;
+  std::string skey_pwd_;
 
   // Extend record types with the following special values
   enum {

@@ -678,6 +678,42 @@ Status BlockBasedTable::Open(
     return s;
   }
 
+  // Check for encryption
+  if (rep->table_properties->compression_name == 
+        CompressionTypeToString(kEncryptedCompression)) {
+    // If true, then check for encryption key in table properties
+    if (rep->table_properties->sst_encryption_key_id.size() == 0) {
+      return Status::Corruption("Encrypted table missing encryption key");
+    } else {
+
+      std::string session_key_str = rep->table_properties->sst_encryption_key_id;
+      unsigned int session_key_id_int = convert_skid_buf_to_int((unsigned char *)session_key_str.c_str(), SESSION_KEY_ID_SIZE);
+
+      std::string session_key_file_name = "/path/to/db/" + std::to_string(session_key_id_int) + ".skey";
+
+      rep->file->s_key_list_ = init_empty_session_key_list();
+      // rep->file->iv_high_ = rep->table_properties->iv_high;
+      // rep->file->iv_low_ = rep->table_properties->iv_low;
+      // if (load_session_key_list(rep->file->s_key_list_, session_key_file_name.c_str())) {
+      char salt[] = "salt";
+      session_key_t *session_key = NULL;
+      while (session_key == NULL) {
+        if (load_session_key_list_with_password(rep->file->s_key_list_, session_key_file_name.c_str(), rep->ioptions.skey_pwd.c_str(), rep->ioptions.skey_pwd.length(), salt, sizeof(salt))) {
+          session_key = get_session_key_by_ID((unsigned char *)rep->table_properties->sst_encryption_key_id.c_str(), rep->ioptions.ctx, rep->file->s_key_list_);
+        } else {
+          // We have the session key in the file. Can move on. 
+          break;
+        }
+      }
+      if (session_key == NULL) {
+        fprintf(stderr, "Found session key %d from file. No need to save.\n", session_key_id_int);
+      } else {
+        save_session_key_list_with_password(rep->file->s_key_list_, session_key_file_name.c_str(), rep->ioptions.skey_pwd.c_str(), rep->ioptions.skey_pwd.length(), salt, sizeof(salt));
+        fprintf(stderr, "Saving the session key %d.\n", session_key_id_int);
+      }
+    }
+  }
+
   // Populate BlockCreateContext
   bool blocks_definitely_zstd_compressed =
       rep->table_properties &&

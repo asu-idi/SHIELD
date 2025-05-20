@@ -987,8 +987,10 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options,
 
   stream << "lsm_state";
   stream.StartArray();
+  std::string level_str;
   for (int level = 0; level < vstorage->num_levels(); ++level) {
     stream << vstorage->NumLevelFiles(level);
+    level_str += std::to_string(vstorage->NumLevelFiles(level)) + ',';
   }
   stream.EndArray();
 
@@ -1939,11 +1941,33 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       sub_compact->compaction->OutputFilePreallocationSize()));
   const auto& listeners =
       sub_compact->compaction->immutable_options()->listeners;
-  outputs.AssignFileWriter(new WritableFileWriter(
-      std::move(writable_file), fname, fo_copy, db_options_.clock, io_tracer_,
-      db_options_.stats, listeners, db_options_.file_checksum_gen_factory.get(),
-      tmp_set.Contains(FileType::kTableFile), false));
 
+  if (sub_compact->compaction->output_compression() == kEncryptedCompression) {
+
+    sprintf(db_options_.ctx->config->purpose[db_options_.ctx->config->purpose_index], "{\"group\":\"CompactionNodes\"}");
+    
+    session_key_list_t *s_key_list = NULL;
+    while (s_key_list == NULL) {
+      s_key_list = get_session_key(db_options_.ctx, NULL);
+    }
+
+    unsigned int s_key_id = convert_skid_buf_to_int(s_key_list->s_key[0].key_id, 8);
+    std::string session_key_file_name = "/path/to/db/" + std::to_string(s_key_id) + ".skey";
+    char salt[] = "salt";
+    save_session_key_list_with_password(s_key_list, session_key_file_name.c_str(), db_options_.skey_pwd.c_str(), db_options_.skey_pwd.length(), salt, sizeof(salt));
+
+
+    outputs.AssignFileWriter(new WritableFileWriter(
+        std::move(writable_file), fname, fo_copy, db_options_.clock, io_tracer_,
+        db_options_.stats, listeners, db_options_.file_checksum_gen_factory.get(),
+        tmp_set.Contains(FileType::kTableFile), false, s_key_list));
+  } else {
+    outputs.AssignFileWriter(new WritableFileWriter(
+        std::move(writable_file), fname, fo_copy, db_options_.clock, io_tracer_,
+        db_options_.stats, listeners, db_options_.file_checksum_gen_factory.get(),
+        tmp_set.Contains(FileType::kTableFile), false));
+  }
+  
   // TODO(hx235): pass in the correct `oldest_key_time` instead of `0`
   TableBuilderOptions tboptions(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
@@ -2088,6 +2112,14 @@ void CompactionJob::LogCompaction() {
            << "compaction_started"
            << "compaction_reason"
            << GetCompactionReasonString(compaction->compaction_reason());
+
+    // in stderr now
+    // |time|flush|reason|size|memory use|time taken| ops/sec
+    // fprintf(stderr, "%s\tCompaction\tStart\t%" PRIu64 "\t%s\n",
+    //         TimeToStringMicros(env_->NowMicros()).c_str(),
+    //         env_->NowMicros(),
+    //         GetCompactionReasonString(compaction->compaction_reason()));
+    
     for (size_t i = 0; i < compaction->num_input_levels(); ++i) {
       stream << ("files_L" + std::to_string(compaction->level(i)));
       stream.StartArray();

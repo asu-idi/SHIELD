@@ -55,6 +55,10 @@
 #include "util/string_util.h"
 #include "util/work_queue.h"
 
+extern "C" {
+  #include "sst-c-api/c_api.h"
+}
+
 namespace ROCKSDB_NAMESPACE {
 
 extern const std::string kHashIndexPrefixesBlock;
@@ -122,6 +126,18 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
                     bool allow_sample, std::string* compressed_output,
                     std::string* sampled_output_fast,
                     std::string* sampled_output_slow) {
+  return CompressBlock(uncompressed_data, info, type, format_version,
+                       allow_sample, compressed_output, sampled_output_fast,
+                       sampled_output_slow, nullptr);
+}
+
+// format_version is the block format as defined in include/rocksdb/table.h
+Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
+                    CompressionType* type, uint32_t format_version,
+                    bool allow_sample, std::string* compressed_output,
+                    std::string* sampled_output_fast,
+                    std::string* sampled_output_slow,
+                    uint64_t* elapsed_time) {
   assert(type);
   assert(compressed_output);
   assert(compressed_output->empty());
@@ -174,15 +190,17 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
   // or the compression fails etc., just fall back to uncompressed
   if (!CompressData(uncompressed_data, info,
                     GetCompressFormatForVersion(format_version),
-                    compressed_output)) {
+                    compressed_output, elapsed_time)) {
     *type = kNoCompression;
     return uncompressed_data;
   }
 
-  // Check the compression ratio; if it's not good enough, just fall back to
-  // uncompressed
-  if (!GoodCompressionRatio(compressed_output->size(), uncompressed_data.size(),
-                            max_compressed_bytes_per_kb)) {
+  // Added the encrypted compression condition since GoodCompressionRatio will 
+  // always fail for EncryptedCompression. Check the compression ratio; 
+  // if it's not good enough, just fall back to uncompressed
+  if (info.type() != kEncryptedCompression && 
+          !GoodCompressionRatio(compressed_output->size(), uncompressed_data.size(),
+          max_compressed_bytes_per_kb)) {
     *type = kNoCompression;
     return uncompressed_data;
   }
@@ -1138,6 +1156,8 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
   CompressionType type;
   Status compress_status;
   bool is_data_block = block_type == BlockType::kData;
+  
+  RecordTick(r->ioptions.stats, ENCRYPTION_CALL_COUNT); 
   CompressAndVerifyBlock(uncompressed_block_data, is_data_block,
                          *(r->compression_ctxs[0]), r->verify_ctxs[0].get(),
                          &(r->compressed_output), &(block_contents), &type,
@@ -1165,6 +1185,7 @@ void BlockBasedTableBuilder::BGWorkCompression(
   ParallelCompressionRep::BlockRep* block_rep = nullptr;
   while (rep_->pc_rep->compress_queue.pop(block_rep)) {
     assert(block_rep != nullptr);
+    RecordTick(rep_->ioptions.stats, ENCRYPTION_CALL_COUNT);
     CompressAndVerifyBlock(block_rep->contents, true, /* is_data_block*/
                            compression_ctx, verify_ctx,
                            block_rep->compressed_data.get(),
@@ -1203,14 +1224,26 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
     assert(compression_dict != nullptr);
     CompressionInfo compression_info(r->compression_opts, compression_ctx,
                                      *compression_dict, r->compression_type,
-                                     r->sample_for_compression);
+                                     r->sample_for_compression,
+                                     r->ioptions.ctx,
+                                     r->file->s_key_list_,
+                                     r->get_offset(),
+                                     r->file->iv_high_,
+                                     r->file->iv_low_);
 
     std::string sampled_output_fast;
     std::string sampled_output_slow;
+    uint64_t elapsed_time_value = 0;
+    uint64_t* elapsed_time = &elapsed_time_value;
     *block_contents = CompressBlock(
         uncompressed_block_data, compression_info, type,
         r->table_options.format_version, is_data_block /* allow_sample */,
-        compressed_output, &sampled_output_fast, &sampled_output_slow);
+        compressed_output, &sampled_output_fast, &sampled_output_slow, elapsed_time);
+
+    // if (*type == kEncryptedCompression) {
+      RecordTimeToHistogram(r->ioptions.stats, ENCRYPTION_AVG_TIME_MICROS,
+                            *elapsed_time);
+    // }
 
     if (sampled_output_slow.size() > 0 || sampled_output_fast.size() > 0) {
       // Currently compression sampling is only enabled for data block.
@@ -1241,7 +1274,11 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
       assert(verify_dict != nullptr);
       BlockContents contents;
       UncompressionInfo uncompression_info(*verify_ctx, *verify_dict,
-                                           r->compression_type);
+                                           r->compression_type,
+                                           r->ioptions.ctx, r->file->s_key_list_,
+                                           r->get_offset(),
+                                           r->file->iv_high_,
+                                           r->file->iv_low_);
       Status uncompress_status = UncompressBlockData(
           uncompression_info, block_contents->data(), block_contents->size(),
           &contents, r->table_options.format_version, r->ioptions);
@@ -1706,6 +1743,14 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     rep_->props.user_defined_timestamps_persisted =
         rep_->persist_user_defined_timestamps;
 
+    if (rep_->compression_type == kEncryptedCompression) {
+      rep_->props.sst_encryption_key_id = 
+          std::string(reinterpret_cast<char*>(rep_->file->s_key_list_->s_key[0].key_id), 
+          sizeof(rep_->props.sst_encryption_key_id));
+      rep_->props.iv_high = rep_->file->iv_high_;
+      rep_->props.iv_low = rep_->file->iv_low_;
+    }
+    
     // Add basic properties
     property_block_builder.AddTableProperty(rep_->props);
 

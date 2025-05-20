@@ -116,6 +116,14 @@ static Status ParseCompressionOptions(const std::string& value,
     compression_opts.max_dict_buffer_bytes = ParseUint64(field);
   }
 
+  if (!field_stream.eof()) {
+    if (!std::getline(field_stream, field, kDelimiter)) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.max_wal_buffer_bytes = ParseInt(field);
+  }
+
   // use_zstd_dict_trainer is optional for backwards compatibility
   if (!field_stream.eof()) {
     if (!std::getline(field_stream, field, kDelimiter)) {
@@ -169,6 +177,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct CompressionOptions, max_dict_buffer_bytes),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"max_wal_buffer_bytes",
+          {offsetof(struct CompressionOptions, max_wal_buffer_bytes),
+            OptionType::kInt, OptionVerificationType::kNormal,
+            OptionTypeFlags::kMutable}},
         {"use_zstd_dict_trainer",
          {offsetof(struct CompressionOptions, use_zstd_dict_trainer),
           OptionType::kBoolean, OptionVerificationType::kNormal,

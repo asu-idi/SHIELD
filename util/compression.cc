@@ -11,6 +11,17 @@ StreamingCompress* StreamingCompress::Create(CompressionType compression_type,
                                              const CompressionOptions& opts,
                                              uint32_t compress_format_version,
                                              size_t max_output_len) {
+  StreamingCompress* compress = Create(compression_type, opts,
+                                       compress_format_version, max_output_len,
+                                       nullptr);
+  return compress;
+}
+
+StreamingCompress* StreamingCompress::Create(CompressionType compression_type,
+                                             const CompressionOptions& opts,
+                                             uint32_t compress_format_version,
+                                             size_t max_output_len,
+                                             session_key_list_t* s_key_list) {
   switch (compression_type) {
     case kZSTD: {
       if (!ZSTD_Streaming_Supported()) {
@@ -18,6 +29,10 @@ StreamingCompress* StreamingCompress::Create(CompressionType compression_type,
       }
       return new ZSTDStreamingCompress(opts, compress_format_version,
                                        max_output_len);
+    }
+    case kEncryptedCompression : {
+      return new EncryptedCompress(opts, compress_format_version,
+                                   max_output_len, s_key_list);
     }
     default:
       return nullptr;
@@ -27,6 +42,15 @@ StreamingCompress* StreamingCompress::Create(CompressionType compression_type,
 StreamingUncompress* StreamingUncompress::Create(
     CompressionType compression_type, uint32_t compress_format_version,
     size_t max_output_len) {
+  
+  StreamingUncompress *uncompress = Create(compression_type, compress_format_version,
+                                           max_output_len, nullptr);
+  return uncompress;
+}
+
+StreamingUncompress* StreamingUncompress::Create(
+    CompressionType compression_type, uint32_t compress_format_version,
+    size_t max_output_len, session_key_list_t* s_key_list) {
   switch (compression_type) {
     case kZSTD: {
       if (!ZSTD_Streaming_Supported()) {
@@ -34,6 +58,10 @@ StreamingUncompress* StreamingUncompress::Create(
       }
       return new ZSTDStreamingUncompress(compress_format_version,
                                          max_output_len);
+    }
+    case kEncryptedCompression : {
+      return new EncryptedUncompress(compress_format_version,
+                                     max_output_len, s_key_list);
     }
     default:
       return nullptr;
@@ -118,5 +146,34 @@ void ZSTDStreamingUncompress::Reset() {
   input_buffer_ = {/*src=*/nullptr, /*size=*/0, /*pos=*/0};
 #endif
 }
+
+int EncryptedCompress::Compress(const char* input, size_t input_size,
+                                char* output, size_t* output_len) {
+  unsigned int encrypted_length;
+  if (encrypt_buf_with_session_key(
+        &s_key_list->s_key[0], (unsigned char *) input,
+        input_size, (unsigned char **) &output, &encrypted_length)) {
+    printf("Encryption failed!\n");
+    return -1;
+  }
+  *output_len = encrypted_length;
+  return 0;
+}
+
+void EncryptedCompress::Reset() {;}
+
+int EncryptedUncompress::Uncompress(const char* input, size_t input_size,
+                                    char* output, size_t* output_pos) {
+  unsigned int uncompressed_size;
+  if (decrypt_buf_with_session_key(
+        &s_key_list->s_key[0], (unsigned char *) input,
+        input_size, (unsigned char **) &output, &uncompressed_size)) {
+    printf("Decryption failed!\n");
+    return -1;
+  }
+  return 0;
+}
+
+void EncryptedUncompress::Reset() {;}
 
 }  // namespace ROCKSDB_NAMESPACE

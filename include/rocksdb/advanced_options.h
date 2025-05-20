@@ -161,6 +161,8 @@ struct CompressionOptions {
   // restrict the size of the final dictionary.
   uint64_t max_dict_buffer_bytes = 0;
 
+  int max_wal_buffer_bytes = 0;
+
   // Use zstd trainer to generate dictionaries. When this option is set to true,
   // zstd_max_train_bytes of training data sampled from max_dict_buffer_bytes
   // buffered data will be passed to zstd dictionary trainer to generate a

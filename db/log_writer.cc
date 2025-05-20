@@ -23,14 +23,17 @@ namespace log {
 
 Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
                bool recycle_log_files, bool manual_flush,
-               CompressionType compression_type)
+               CompressionType compression_type, session_key_list_t *s_key_list_,
+               int max_wal_buffer_bytes_)
     : dest_(std::move(dest)),
       block_offset_(0),
       log_number_(log_number),
       recycle_log_files_(recycle_log_files),
       manual_flush_(manual_flush),
       compression_type_(compression_type),
-      compress_(nullptr) {
+      compress_(nullptr),
+      s_key_list_(s_key_list_),
+      max_wal_buffer_bytes_(max_wal_buffer_bytes_) {
   for (int i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);
     type_crc_[i] = crc32c::Value(&t, 1);
@@ -111,23 +114,27 @@ IOStatus Writer::AddRecord(const Slice& slice,
     // Compress() is called at least once (compress_start=true) and after the
     // previous generated compressed chunk is written out as one or more
     // physical records (left=0).
-    if (compress_ && (compress_start || left == 0)) {
-      compress_remaining = compress_->Compress(slice.data(), slice.size(),
-                                               compressed_buffer_.get(), &left);
+    // If we work with Encrypted Compression, we will batch and 'compress' the
+    // data in the buffer and then write it out.
+    if (compression_type_ != CompressionType::kEncryptedCompression) {
+      if (compress_ && (compress_start || left == 0)) {
+        compress_remaining = compress_->Compress(slice.data(), slice.size(),
+                                                compressed_buffer_.get(), &left);
 
-      if (compress_remaining < 0) {
-        // Set failure status
-        s = IOStatus::IOError("Unexpected WAL compression error");
-        s.SetDataLoss(true);
-        break;
-      } else if (left == 0) {
-        // Nothing left to compress
-        if (!compress_start) {
+        if (compress_remaining < 0) {
+          // Set failure status
+          s = IOStatus::IOError("Unexpected WAL compression error");
+          s.SetDataLoss(true);
           break;
+        } else if (left == 0) {
+          // Nothing left to compress
+          if (!compress_start) {
+            break;
+          }
         }
+        compress_start = false;
+        ptr = compressed_buffer_.get();
       }
-      compress_start = false;
-      ptr = compressed_buffer_.get();
     }
 
     const size_t fragment_length = (left < avail) ? left : avail;
@@ -151,8 +158,34 @@ IOStatus Writer::AddRecord(const Slice& slice,
   } while (s.ok() && (left > 0 || compress_remaining > 0));
 
   if (s.ok()) {
-    if (!manual_flush_) {
-      s = dest_->Flush(rate_limiter_priority);
+    if (dest_->buf_.CurrentSize() > max_wal_buffer_bytes_) {
+      if (compression_type_ == CompressionType::kEncryptedCompression) {
+        char *encrypted_data = "";
+        size_t encrypted_data_size = 0;
+
+        if (compress_ && (compress_start || left == 0)) {
+          compress_remaining = compress_->Compress(dest_->buf_.ReturnBufferPtr(), dest_->buf_.CurrentSize(),
+                                                  encrypted_data, &encrypted_data_size);
+
+          // Update buf to reflect the new data
+          dest_->buf_.Clear();
+          dest_->buf_.Append(encrypted_data, encrypted_data_size);
+
+          if (compress_remaining < 0) {
+            // Set failure status
+            s = IOStatus::IOError("Unexpected WAL compression error");
+            s.SetDataLoss(true);
+          } 
+          compress_start = false;
+        }
+
+        s = dest_->Flush(rate_limiter_priority);
+      } 
+      else {
+        if (!manual_flush_) {
+         s = dest_->Flush(rate_limiter_priority);
+        }
+      }
     }
   }
 
@@ -174,6 +207,9 @@ IOStatus Writer::AddCompressionTypeRecord() {
   IOStatus s =
       EmitPhysicalRecord(kSetCompressionType, encode.data(), encode.size());
   if (s.ok()) {
+    s = EmitPhysicalRecord(kSessionKeyIDType, reinterpret_cast<char*>(this->s_key_list_->s_key[0].key_id), sizeof(this->s_key_list_->s_key[0].key_id));
+  }
+  if (s.ok()) {
     if (!manual_flush_) {
       s = dest_->Flush();
     }
@@ -182,9 +218,17 @@ IOStatus Writer::AddCompressionTypeRecord() {
         kBlockSize - (recycle_log_files_ ? kRecyclableHeaderSize : kHeaderSize);
     CompressionOptions opts;
     constexpr uint32_t compression_format_version = 2;
-    compress_ = StreamingCompress::Create(compression_type_, opts,
-                                          compression_format_version,
-                                          max_output_buffer_len);
+    if (compression_type_ == CompressionType::kEncryptedCompression) {
+      opts.max_wal_buffer_bytes = max_wal_buffer_bytes_;
+      compress_ = StreamingCompress::Create(compression_type_, opts,
+                                            compression_format_version,
+                                            max_output_buffer_len,
+                                            this->s_key_list_);
+    } else {
+      compress_ = StreamingCompress::Create(compression_type_, opts,
+                                            compression_format_version,
+                                            max_output_buffer_len);
+    }
     assert(compress_ != nullptr);
     compressed_buffer_ =
         std::unique_ptr<char[]>(new char[max_output_buffer_len]);
@@ -239,7 +283,7 @@ IOStatus Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n,
 
   uint32_t crc = type_crc_[t];
   if (t < kRecyclableFullType || t == kSetCompressionType ||
-      t == kUserDefinedTimestampSizeType) {
+      t == kUserDefinedTimestampSizeType || t == kSessionKeyIDType) {
     // Legacy record format
     assert(block_offset_ + kHeaderSize + n <= kBlockSize);
     header_size = kHeaderSize;

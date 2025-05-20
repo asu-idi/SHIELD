@@ -10,6 +10,10 @@
 
 #include "rocksdb/options.h"
 
+extern "C" {
+  #include "sst-c-api/c_api.h"
+}
+
 namespace ROCKSDB_NAMESPACE {
 class SystemClock;
 
@@ -19,6 +23,9 @@ struct ImmutableDBOptions {
   explicit ImmutableDBOptions(const DBOptions& options);
 
   void Dump(Logger* log) const;
+
+  std::string skey_pwd;
+  SST_ctx_t *ctx;
 
   bool create_if_missing;
   bool create_missing_column_families;

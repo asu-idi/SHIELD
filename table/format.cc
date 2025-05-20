@@ -646,9 +646,21 @@ Status UncompressBlockData(const UncompressionInfo& uncompression_info,
                       ShouldReportDetailedTime(ioptions.env, ioptions.stats));
   size_t uncompressed_size = 0;
   const char* error_msg = nullptr;
+  uint64_t start_time = Env::Default()->NowMicros();
+  uint64_t time_elapsed = 0;
+  uint64_t *time_elapsed_ptr = &time_elapsed;
+
   CacheAllocationPtr ubuf = UncompressData(
       uncompression_info, data, size, &uncompressed_size,
-      GetCompressFormatForVersion(format_version), allocator, &error_msg);
+      GetCompressFormatForVersion(format_version), allocator, &error_msg,
+      time_elapsed_ptr);
+
+  // if (uncompression_info.type() == kEncryptedCompression) {
+    RecordTick(ioptions.stats, DECRYPTION_CALL_COUNT);
+    RecordTimeToHistogram(ioptions.stats, DECRYPTION_AVG_TIME_MICROS,
+                          *time_elapsed_ptr);
+  // }
+
   if (!ubuf) {
     if (!CompressionTypeSupported(uncompression_info.type())) {
       ret = Status::NotSupported(

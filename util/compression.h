@@ -29,6 +29,16 @@
 #include "util/compression_context_cache.h"
 #include "util/string_util.h"
 
+#include "rocksdb/env.h"
+#include "util/string_util.h"
+#include <cinttypes>
+#include <time.h>
+#include "port/sys_time.h"
+
+extern "C" {
+  #include "sst-c-api/c_api.h"
+}
+
 #ifdef SNAPPY
 #include <snappy.h>
 #endif
@@ -443,8 +453,32 @@ class CompressionInfo {
   const CompressionDict& dict_;
   const CompressionType type_;
   const uint64_t sample_for_compression_;
+  SST_ctx_t *ctx_;
+  session_key_list_t *s_key_list_ = init_empty_session_key_list();
+  std::atomic<uint64_t> offset_;  // Added member variable 'offset'
+  const uint64_t iv_high_;
+  const uint64_t iv_low_;
 
  public:
+  CompressionInfo(const CompressionOptions& _opts,
+                  const CompressionContext& _context,
+                  const CompressionDict& _dict, CompressionType _type,
+                  uint64_t _sample_for_compression, SST_ctx_t * _ctx,
+                  session_key_list_t * _s_key_list,
+                  uint64_t _offset,
+                  uint64_t _iv_high,
+                  uint64_t _iv_low)  // Include offset in the constructor
+      : opts_(_opts),
+        context_(_context),
+        dict_(_dict),
+        type_(_type),
+        sample_for_compression_(_sample_for_compression),
+        ctx_(_ctx),
+        s_key_list_(_s_key_list),
+        offset_(_offset),  // Initialize offset in the member initializer list
+        iv_high_(_iv_high), 
+        iv_low_(_iv_low) {} 
+
   CompressionInfo(const CompressionOptions& _opts,
                   const CompressionContext& _context,
                   const CompressionDict& _dict, CompressionType _type,
@@ -453,13 +487,21 @@ class CompressionInfo {
         context_(_context),
         dict_(_dict),
         type_(_type),
-        sample_for_compression_(_sample_for_compression) {}
+        sample_for_compression_(_sample_for_compression),
+        iv_high_(0), 
+        iv_low_(0) {} 
 
   const CompressionOptions& options() const { return opts_; }
   const CompressionContext& context() const { return context_; }
   const CompressionDict& dict() const { return dict_; }
   CompressionType type() const { return type_; }
   uint64_t SampleForCompression() const { return sample_for_compression_; }
+  const SST_ctx_t *ctx() const { return ctx_; }
+  const session_key_list_t *s_key_list() const { return s_key_list_; }
+  uint64_t getOffset() const { return offset_.load(); }     // Getter for offset
+  void setOffset(uint64_t value) { offset_.store(value); }  // Setter for offset
+  const uint64_t& Iv_High() const { return iv_high_; }
+  const uint64_t& Iv_low() const { return iv_low_; }
 };
 
 class UncompressionContext {
@@ -493,15 +535,40 @@ class UncompressionInfo {
   const UncompressionContext& context_;
   const UncompressionDict& dict_;
   const CompressionType type_;
+  SST_ctx_t *ctx_;
+  session_key_list_t *s_key_list_ = init_empty_session_key_list();
+  std::atomic<uint64_t> offset_;  // Added member variable 'offset'
+  const uint64_t iv_high_;
+  const uint64_t iv_low_;
 
  public:
   UncompressionInfo(const UncompressionContext& _context,
+                    const UncompressionDict& _dict, CompressionType _type,
+                    SST_ctx_t * _ctx,
+                    session_key_list_t * _s_key_list,
+                    uint64_t _offset, // Include offset in the constructor
+                    uint64_t _iv_high,
+                    uint64_t _iv_low)  
+      : context_(_context), dict_(_dict), type_(_type),
+        ctx_(_ctx),
+        s_key_list_(_s_key_list),
+        offset_(_offset),   // Initialize offset in the member initializer list
+        iv_high_(_iv_high), 
+        iv_low_(_iv_low) {}
+
+  UncompressionInfo(const UncompressionContext& _context,
                     const UncompressionDict& _dict, CompressionType _type)
-      : context_(_context), dict_(_dict), type_(_type) {}
+      : context_(_context), dict_(_dict), type_(_type), iv_high_(0), iv_low_(0) {} 
 
   const UncompressionContext& context() const { return context_; }
   const UncompressionDict& dict() const { return dict_; }
   CompressionType type() const { return type_; }
+  const SST_ctx_t *ctx() const { return ctx_; }
+  const session_key_list_t *s_key_list() const { return s_key_list_; }
+  uint64_t getOffset() const { return offset_.load(); }     // Getter for offset
+  void setOffset(uint64_t value) { offset_.store(value); }  // Setter for offset
+  const uint64_t& Iv_High() const { return iv_high_; }
+  const uint64_t& Iv_low() const { return iv_low_; }
 };
 
 inline bool Snappy_Supported() {
@@ -576,6 +643,8 @@ inline bool StreamingCompressionTypeSupported(
       return true;
     case kZSTD:
       return ZSTD_Streaming_Supported();
+    case kEncryptedCompression:
+      return true;
     default:
       return false;
   }
@@ -601,6 +670,8 @@ inline bool CompressionTypeSupported(CompressionType compression_type) {
       return ZSTDNotFinal_Supported();
     case kZSTD:
       return ZSTD_Supported();
+    case kEncryptedCompression:
+      return true;
     default:
       assert(false);
       return false;
@@ -638,6 +709,8 @@ inline bool DictCompressionTypeSupported(CompressionType compression_type) {
 #else
       return false;
 #endif
+    case kEncryptedCompression:
+      return false;
     default:
       assert(false);
       return false;
@@ -666,6 +739,8 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
       return "ZSTDNotFinal";
     case kDisableCompressionOption:
       return "DisableOption";
+    case kEncryptedCompression:
+      return "Encrypted";
     default:
       assert(false);
       return "";
@@ -1442,6 +1517,34 @@ inline bool ZSTD_Compress(const CompressionInfo& info, const char* input,
 #endif
 }
 
+// Add a key
+inline bool ENCRYPTED_Compress(const CompressionInfo& info, const char* input,
+                               size_t length, ::std::string* output) {
+
+  unsigned int encrypted_length;
+  output->resize(static_cast<size_t>(length+16));
+  if (encrypt_buf_with_session_key_without_malloc(
+        &info.s_key_list()->s_key[0], (unsigned char *) input,
+        length, reinterpret_cast<unsigned char*>(output->data()), &encrypted_length)) {
+    printf("Encryption failed!\n");
+  }
+  return true;
+}
+
+inline CacheAllocationPtr ENCRYPTED_Uncompress(const UncompressionInfo& info, const char* input_data, 
+                                 size_t input_length, size_t* uncompressed_size, 
+                                 MemoryAllocator* allocator = nullptr,
+                                 const char** /*error_message*/ = nullptr,
+                                 uint64_t* time_elapsed = nullptr) {
+  CacheAllocationPtr output = AllocateBlock(input_length-16, allocator);
+  if (decrypt_buf_with_session_key_without_malloc(
+        &info.s_key_list()->s_key[0], (unsigned char *) input_data,
+        input_length, (unsigned char *) output.get(), (unsigned int *) uncompressed_size)) {
+    printf("Decryption failed!\n");
+  }
+  return output;
+}
+
 // @param compression_dict Data for presetting the compression library's
 //    dictionary.
 // @param error_message If not null, will be set if decompression fails.
@@ -1623,8 +1726,13 @@ inline std::string ZSTD_FinalizeDictionary(
 inline bool CompressData(const Slice& raw,
                          const CompressionInfo& compression_info,
                          uint32_t compress_format_version,
-                         std::string* compressed_output) {
+                         std::string* compressed_output,
+                         uint64_t* time_elapsed) {
   bool ret = false;
+
+  port::TimeVal tv;
+  port::GetTimeOfDay(&tv, nullptr);
+  uint64_t start_time = static_cast<uint64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
 
   // Will return compressed block contents if (1) the compression method is
   // supported in this platform and (2) the compression rate is "good enough".
@@ -1657,22 +1765,51 @@ inline bool CompressData(const Slice& raw,
       ret = ZSTD_Compress(compression_info, raw.data(), raw.size(),
                           compressed_output);
       break;
+    case kEncryptedCompression:
+      ret = ENCRYPTED_Compress(compression_info, raw.data(), raw.size(),
+                               compressed_output);
+      break;
     default:
       // Do not recognize this compression type
       break;
   }
 
+  port::GetTimeOfDay(&tv, nullptr);
+  uint64_t end_time = static_cast<uint64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
+
+  // Start keeping track of average encryption time, to be put in stderr at code end
+  uint64_t time_diff = end_time - start_time;
+  if (time_elapsed != nullptr) {
+    *time_elapsed = time_diff;
+  } else {
+    *time_elapsed = time_diff;
+  }
+  
   TEST_SYNC_POINT_CALLBACK("CompressData:TamperWithReturnValue",
                            static_cast<void*>(&ret));
 
   return ret;
 }
 
+inline bool CompressData(const Slice& raw,
+                         const CompressionInfo& compression_info,
+                         uint32_t compress_format_version,
+                         std::string* compressed_output) {
+  return CompressData(raw, compression_info, compress_format_version,
+                      compressed_output, nullptr);
+}
+
 inline CacheAllocationPtr UncompressData(
     const UncompressionInfo& uncompression_info, const char* data, size_t n,
     size_t* uncompressed_size, uint32_t compress_format_version,
     MemoryAllocator* allocator = nullptr,
-    const char** error_message = nullptr) {
+    const char** error_message = nullptr,
+    uint64_t* time_elapsed = nullptr) {
+
+  port::TimeVal tv;
+  port::GetTimeOfDay(&tv, nullptr);
+  uint64_t curr_time_micros = static_cast<uint64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
+
   switch (uncompression_info.type()) {
     case kSnappyCompression:
       return Snappy_Uncompress(data, n, uncompressed_size, allocator);
@@ -1695,9 +1832,21 @@ inline CacheAllocationPtr UncompressData(
       // TODO(cbi): error message handling for other compression algorithms.
       return ZSTD_Uncompress(uncompression_info, data, n, uncompressed_size,
                              allocator, error_message);
+    case kEncryptedCompression:
+      return ENCRYPTED_Uncompress(uncompression_info, data, n,
+                                  uncompressed_size, allocator,
+                                  error_message, time_elapsed);
     default:
       return CacheAllocationPtr();
   }
+}
+
+inline CacheAllocationPtr UncompressData(
+    const UncompressionInfo& uncompression_info, const char* data, size_t n,
+    size_t* uncompressed_size, uint32_t compress_format_version,
+    MemoryAllocator* allocator, const char** error_message) {
+  return UncompressData(uncompression_info, data, n, uncompressed_size,
+                        compress_format_version, allocator, error_message, nullptr);
 }
 
 // Records the compression type for subsequent WAL records.
@@ -1772,7 +1921,15 @@ class StreamingCompress {
                                    const CompressionOptions& opts,
                                    uint32_t compress_format_version,
                                    size_t max_output_len);
+  static StreamingCompress* Create(CompressionType compression_type,
+                                   const CompressionOptions& opts,
+                                   uint32_t compress_format_version,
+                                   size_t max_output_len,
+                                   session_key_list_t *s_key_list_);
+
   virtual void Reset() = 0;
+
+  int GetMaxWalBufferBytes() const { return opts_.max_wal_buffer_bytes; }
 
  protected:
   const CompressionType compression_type_;
@@ -1812,6 +1969,10 @@ class StreamingUncompress {
   static StreamingUncompress* Create(CompressionType compression_type,
                                      uint32_t compress_format_version,
                                      size_t max_output_len);
+  static StreamingUncompress* Create(CompressionType compression_type,
+                                     uint32_t compress_format_version,
+                                     size_t max_output_len,
+                                     session_key_list_t *s_key_list_);
   virtual void Reset() = 0;
 
  protected:
@@ -1875,5 +2036,42 @@ class ZSTDStreamingUncompress final : public StreamingUncompress {
   ZSTD_inBuffer input_buffer_;
 #endif
 };
+
+class EncryptedCompress final : public StreamingCompress {
+ public:
+  explicit EncryptedCompress(const CompressionOptions& opts,
+                             uint32_t compress_format_version,
+                             size_t max_output_len,
+                             session_key_list_t* s_key_list_)
+      : StreamingCompress(kEncryptedCompression, opts, compress_format_version,
+                          max_output_len) {
+    s_key_list = s_key_list_;
+  }
+  ~EncryptedCompress() override {}
+  int Compress(const char* input, size_t input_size, char* output,
+               size_t* output_pos) override;
+  void Reset() override;
+
+  private:
+    session_key_list_t* s_key_list;
+}; 
+
+class EncryptedUncompress final : public StreamingUncompress {
+ public:
+  explicit EncryptedUncompress(uint32_t compress_format_version,
+                               size_t max_output_len, session_key_list_t* s_key_list_)
+      : StreamingUncompress(kEncryptedCompression, compress_format_version,
+                            max_output_len) {
+    s_key_list = s_key_list_;
+  }
+  ~EncryptedUncompress() override {}
+  int Uncompress(const char* input, size_t input_size, char* output,
+                 size_t* output_size) override;
+  void Reset() override;
+
+  private:
+    session_key_list_t* s_key_list;
+};
+
 
 }  // namespace ROCKSDB_NAMESPACE

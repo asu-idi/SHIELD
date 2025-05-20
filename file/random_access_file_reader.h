@@ -20,6 +20,10 @@
 #include "rocksdb/rate_limiter.h"
 #include "util/aligned_buffer.h"
 
+extern "C" {
+  #include "sst-c-api/c_api.h"
+}
+
 namespace ROCKSDB_NAMESPACE {
 class Statistics;
 class HistogramImpl;
@@ -118,6 +122,10 @@ class RandomAccessFileReader {
   };
 
  public:
+  session_key_list_t *s_key_list_ = init_empty_session_key_list();
+  std::uint64_t iv_high_;
+  std::uint64_t iv_low_;
+  std::uint64_t enc_offset_;
   explicit RandomAccessFileReader(
       std::unique_ptr<FSRandomAccessFile>&& raf, const std::string& _file_name,
       SystemClock* clock = nullptr,
@@ -128,7 +136,11 @@ class RandomAccessFileReader {
       RateLimiter* rate_limiter = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
       Temperature file_temperature = Temperature::kUnknown,
-      bool is_last_level = false)
+      bool is_last_level = false,
+      session_key_list_t *s_key_list = nullptr,
+      std::uint64_t iv_high = 0,
+      std::uint64_t iv_low = 0,
+      std::uint64_t enc_offset = 0)
       : file_(std::move(raf), io_tracer, _file_name),
         file_name_(std::move(_file_name)),
         clock_(clock),
@@ -138,7 +150,11 @@ class RandomAccessFileReader {
         rate_limiter_(rate_limiter),
         listeners_(),
         file_temperature_(file_temperature),
-        is_last_level_(is_last_level) {
+        is_last_level_(is_last_level),
+        s_key_list_(s_key_list),
+        iv_high_(iv_high),
+        iv_low_(iv_low),
+        enc_offset_(enc_offset) {
     std::for_each(listeners.begin(), listeners.end(),
                   [this](const std::shared_ptr<EventListener>& e) {
                     if (e->ShouldBeNotifiedOnFileIO()) {

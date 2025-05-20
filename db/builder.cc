@@ -42,6 +42,10 @@
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
 
+extern "C" {
+  #include "sst-c-api/c_api.h"
+}
+
 namespace ROCKSDB_NAMESPACE {
 
 class TableFactory;
@@ -56,7 +60,7 @@ TableBuilder* NewTableBuilder(const TableBuilderOptions& tboptions,
 
 Status BuildTable(
     const std::string& dbname, VersionSet* versions,
-    const ImmutableDBOptions& db_options, const TableBuilderOptions& tboptions,
+    const ImmutableDBOptions& db_options, const TableBuilderOptions& old_tboptions,
     const FileOptions& file_options, const ReadOptions& read_options,
     TableCache* table_cache, InternalIterator* iter,
     std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
@@ -75,6 +79,9 @@ Status BuildTable(
     BlobFileCompletionCallback* blob_callback, Version* version,
     uint64_t* num_input_entries, uint64_t* memtable_payload_bytes,
     uint64_t* memtable_garbage_bytes) {
+
+  TableBuilderOptions tboptions = old_tboptions;
+
   assert((tboptions.column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          tboptions.column_family_name.empty());
@@ -166,11 +173,51 @@ Status BuildTable(
       FileTypeSet tmp_set = ioptions.checksum_handoff_file_types;
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
-      file_writer.reset(new WritableFileWriter(
-          std::move(file), fname, file_options, ioptions.clock, io_tracer,
-          ioptions.stats, ioptions.listeners,
-          ioptions.file_checksum_gen_factory.get(),
-          tmp_set.Contains(FileType::kTableFile), false));
+
+      // Setup compression related things for the session
+      if (tboptions.compression_type == kEncryptedCompression) {
+
+        sprintf(tboptions.ioptions.ctx->config->purpose[tboptions.ioptions.ctx->config->purpose_index], "{\"group\":\"CompactionNodes\"}");
+
+        session_key_list_t *s_key_list = NULL;
+        while (s_key_list == NULL) {
+          s_key_list = get_session_key(tboptions.ioptions.ctx, NULL);
+        }
+
+        unsigned int s_key_id = convert_skid_buf_to_int(s_key_list->s_key[0].key_id, 8);
+        std::string session_key_file_name = "/path/to/db/" + std::to_string(s_key_id) + ".skey";
+        // save_session_key_list(s_key_list, session_key_file_name.c_str());
+
+        char salt[] = "salt";
+        save_session_key_list_with_password(s_key_list, session_key_file_name.c_str(), tboptions.ioptions.skey_pwd.c_str(), tboptions.ioptions.skey_pwd.length(), salt, sizeof(salt));
+
+        // Use the file name and append with .skey
+        tp.sst_encryption_key_id = std::string(reinterpret_cast<char*>(s_key_list->s_key[0].key_id), 
+            sizeof(tp.sst_encryption_key_id));
+        
+        
+        std::uint64_t iv_high;
+        std::uint64_t iv_low;
+        // generate_random_nonce(sizeof(iv_high), reinterpret_cast<unsigned char*>(&iv_high));
+        // generate_random_nonce(sizeof(iv_low), reinterpret_cast<unsigned char*>(&iv_low));
+        // tp.iv_high = iv_high;
+        // tp.iv_low = iv_low;
+
+        file_writer.reset(new WritableFileWriter(
+            std::move(file), fname, file_options, ioptions.clock, io_tracer,
+            ioptions.stats, ioptions.listeners,
+            ioptions.file_checksum_gen_factory.get(),
+            tmp_set.Contains(FileType::kTableFile), false,
+            s_key_list, iv_high, iv_low));
+        // printf("\n----------file_name: %s iv_low: %" PRIu64 "\n", fname.c_str(), iv_low);
+        // fflush(stdout);
+      } else {
+        file_writer.reset(new WritableFileWriter(
+            std::move(file), fname, file_options, ioptions.clock, io_tracer,
+            ioptions.stats, ioptions.listeners,
+            ioptions.file_checksum_gen_factory.get(),
+            tmp_set.Contains(FileType::kTableFile), false));
+      }
 
       builder = NewTableBuilder(tboptions, file_writer.get());
     }
@@ -395,31 +442,35 @@ Status BuildTable(
       // here because this is a special case after we finish the table building.
       // No matter whether use_direct_io_for_flush_and_compaction is true,
       // the goal is to cache it here for further user reads.
-      std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
-          read_options, file_options, tboptions.internal_comparator, *meta,
-          nullptr /* range_del_agg */, mutable_cf_options.prefix_extractor,
-          nullptr,
-          (internal_stats == nullptr) ? nullptr
-                                      : internal_stats->GetFileReadHist(0),
-          TableReaderCaller::kFlush, /*arena=*/nullptr,
-          /*skip_filter=*/false, tboptions.level_at_creation,
-          MaxFileSizeForL0MetaPin(mutable_cf_options),
-          /*smallest_compaction_key=*/nullptr,
-          /*largest_compaction_key*/ nullptr,
-          /*allow_unprepared_value*/ false,
-          mutable_cf_options.block_protection_bytes_per_key));
-      s = it->status();
-      if (s.ok() && paranoid_file_checks) {
-        OutputValidator file_validator(tboptions.internal_comparator,
-                                       /*enable_order_check=*/true,
-                                       /*enable_hash=*/true);
-        for (it->SeekToFirst(); it->Valid(); it->Next()) {
-          // Generate a rolling 64-bit hash of the key and values
-          file_validator.Add(it->key(), it->value()).PermitUncheckedError();
-        }
+      
+      // If encrypted encryption, have a different function for the same
+      if (tboptions.compression_type != kEncryptedCompression) {
+        std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
+            read_options, file_options, tboptions.internal_comparator, *meta,
+            nullptr /* range_del_agg */, mutable_cf_options.prefix_extractor,
+            nullptr,
+            (internal_stats == nullptr) ? nullptr
+                                        : internal_stats->GetFileReadHist(0),
+            TableReaderCaller::kFlush, /*arena=*/nullptr,
+            /*skip_filter=*/false, tboptions.level_at_creation,
+            MaxFileSizeForL0MetaPin(mutable_cf_options),
+            /*smallest_compaction_key=*/nullptr,
+            /*largest_compaction_key*/ nullptr,
+            /*allow_unprepared_value*/ false,
+            mutable_cf_options.block_protection_bytes_per_key));
         s = it->status();
-        if (s.ok() && !output_validator.CompareValidator(file_validator)) {
-          s = Status::Corruption("Paranoid checksums do not match");
+        if (s.ok() && paranoid_file_checks) {
+          OutputValidator file_validator(tboptions.internal_comparator,
+                                        /*enable_order_check=*/true,
+                                        /*enable_hash=*/true);
+          for (it->SeekToFirst(); it->Valid(); it->Next()) {
+            // Generate a rolling 64-bit hash of the key and values
+            file_validator.Add(it->key(), it->value()).PermitUncheckedError();
+          }
+          s = it->status();
+          if (s.ok() && !output_validator.CompareValidator(file_validator)) {
+            s = Status::Corruption("Paranoid checksums do not match");
+          }
         }
       }
     }

@@ -14,6 +14,12 @@
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
+#ifdef WIN32
+#include <windows.h>
+#endif
+#include <termios.h>
+#include <unistd.h>
+#include <iostream>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,6 +73,7 @@
 #include "rocksdb/utilities/options_type.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/replayer.h"
+#include "db/compaction/compaction_service.h"
 #include "rocksdb/utilities/sim_cache.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -523,6 +530,9 @@ static ROCKSDB_NAMESPACE::CompactionPri FLAGS_compaction_pri_e;
 DEFINE_int32(compaction_pri,
              (int32_t)ROCKSDB_NAMESPACE::Options().compaction_pri,
              "priority of files to compaction: by size or by data age");
+
+DEFINE_bool(allow_remote_compaction, false,
+            "Allow the remote compaction service");
 
 DEFINE_int32(universal_size_ratio, 0,
              "Percentage flexibility while comparing file size "
@@ -1269,6 +1279,8 @@ static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     return ROCKSDB_NAMESPACE::kXpressCompression;
   else if (!strcasecmp(ctype, "zstd"))
     return ROCKSDB_NAMESPACE::kZSTD;
+  else if (!strcasecmp(ctype, "encrypt"))
+    return ROCKSDB_NAMESPACE::kEncryptedCompression;
   else {
     fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
     exit(1);
@@ -1301,6 +1313,10 @@ DEFINE_int32(compression_max_dict_bytes,
              ROCKSDB_NAMESPACE::CompressionOptions().max_dict_bytes,
              "Maximum size of dictionary used to prime the compression "
              "library.");
+
+DEFINE_int32(compression_max_wal_buffer_bytes,
+             ROCKSDB_NAMESPACE::CompressionOptions().max_wal_buffer_bytes,
+             "Maximum size of buffer used to compress WAL data.");
 
 DEFINE_int32(compression_zstd_max_train_bytes,
              ROCKSDB_NAMESPACE::CompressionOptions().zstd_max_train_bytes,
@@ -1747,6 +1763,10 @@ DEFINE_bool(build_info, false,
 
 DEFINE_bool(track_and_verify_wals_in_manifest, false,
             "If true, enable WAL tracking in the MANIFEST");
+
+DEFINE_string(sst_password, "",
+              "Password to encrypt/decrypt SST files. If empty, user will be "
+              "prompted to enter password.");
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -2834,24 +2854,26 @@ class Benchmark {
     fprintf(stdout,
             "WARNING: Assertions are enabled; benchmarks unnecessarily slow\n");
 #endif
-    if (FLAGS_compression_type_e != ROCKSDB_NAMESPACE::kNoCompression) {
-      // The test string should not be too small.
-      const int len = FLAGS_block_size;
-      std::string input_str(len, 'y');
-      std::string compressed;
-      CompressionOptions opts;
-      CompressionContext context(FLAGS_compression_type_e, opts);
-      CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                           FLAGS_compression_type_e,
-                           FLAGS_sample_for_compression);
-      bool result = CompressSlice(info, Slice(input_str), &compressed);
+    if (FLAGS_compression_type_e != ROCKSDB_NAMESPACE::kEncryptedCompression) {
+      if (FLAGS_compression_type_e != ROCKSDB_NAMESPACE::kNoCompression) {
+        // The test string should not be too small.
+        const int len = FLAGS_block_size;
+        std::string input_str(len, 'y');
+        std::string compressed;
+        CompressionOptions opts;
+        CompressionContext context(FLAGS_compression_type_e, opts);
+        CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
+                            FLAGS_compression_type_e,
+                            FLAGS_sample_for_compression);
+        bool result = CompressSlice(info, Slice(input_str), &compressed);
 
-      if (!result) {
-        fprintf(stdout, "WARNING: %s compression is not enabled\n",
-                compression);
-      } else if (compressed.size() >= input_str.size()) {
-        fprintf(stdout, "WARNING: %s compression is not effective\n",
-                compression);
+        if (!result) {
+          fprintf(stdout, "WARNING: %s compression is not enabled\n",
+                  compression);
+        } else if (compressed.size() >= input_str.size()) {
+          fprintf(stdout, "WARNING: %s compression is not effective\n",
+                  compression);
+        }
       }
     }
   }
@@ -3171,7 +3193,7 @@ class Benchmark {
         // Stacked BlobDB
         blob_db::DestroyBlobDB(FLAGS_db, options, blob_db::BlobDBOptions());
       }
-      DestroyDB(FLAGS_db, options);
+      //      DestroyDB(FLAGS_db, options);
       if (!FLAGS_wal_dir.empty()) {
         FLAGS_env->DeleteDir(FLAGS_wal_dir);
       }
@@ -3665,16 +3687,18 @@ class Benchmark {
           method = nullptr;
         } else {
           if (db_.db != nullptr) {
+            db_.db->Close();
             db_.DeleteDBs();
-            DestroyDB(FLAGS_db, open_options_);
+            //            DestroyDB(FLAGS_db, open_options_);
           }
           Options options = open_options_;
           for (size_t i = 0; i < multi_dbs_.size(); i++) {
+            multi_dbs_[i].db->Close();
             delete multi_dbs_[i].db;
             if (!open_options_.wal_dir.empty()) {
               options.wal_dir = GetPathForMultiple(open_options_.wal_dir, i);
             }
-            DestroyDB(GetPathForMultiple(FLAGS_db, i), options);
+            //            DestroyDB(GetPathForMultiple(FLAGS_db, i), options);
           }
           multi_dbs_.clear();
         }
@@ -4122,6 +4146,7 @@ class Benchmark {
 
     options.compression_opts.level = FLAGS_compression_level;
     options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
+    options.compression_opts.max_wal_buffer_bytes = FLAGS_compression_max_wal_buffer_bytes;
     options.compression_opts.zstd_max_train_bytes =
         FLAGS_compression_zstd_max_train_bytes;
     options.compression_opts.parallel_threads =
@@ -4765,10 +4790,72 @@ class Benchmark {
     InitializeOptionsGeneral(opts);
   }
 
+  void SetStdinEcho(bool enable = true) {
+  // Untested on Windows
+  #ifdef WIN32
+      HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE); 
+      DWORD mode;
+      GetConsoleMode(hStdin, &mode);
+
+      if( !enable )
+          mode &= ~ENABLE_ECHO_INPUT;
+      else
+          mode |= ENABLE_ECHO_INPUT;
+
+      SetConsoleMode(hStdin, mode );
+  #else
+      struct termios tty;
+      tcgetattr(STDIN_FILENO, &tty);
+      if( !enable )
+          tty.c_lflag &= ~ECHO;
+      else
+          tty.c_lflag |= ECHO;
+
+      (void) tcsetattr(STDIN_FILENO, TCSANOW, &tty);
+  #endif
+  }
+
   void OpenDb(Options options, const std::string& db_name,
               DBWithColumnFamilies* db) {
     uint64_t open_start = FLAGS_report_open_timing ? FLAGS_env->NowNanos() : 0;
     Status s;
+
+    if (options.compression == kEncryptedCompression) {
+      options.InitSSTEncryption();
+      open_options_.ctx = options.ctx;
+
+      options.skey_pwd = FLAGS_sst_password;
+      open_options_.skey_pwd = FLAGS_sst_password;
+    }
+
+    if (options.compression == kEncryptedCompression && open_options_.skey_pwd == "") {
+      std::string skey_pwd = FLAGS_sst_password;
+
+      if (skey_pwd == "") {   
+        // Accept password input from user
+        SetStdinEcho(false);
+        fprintf(stdout, "Enter the password: ");
+        std::cin >> skey_pwd;
+        SetStdinEcho(true);
+      }
+
+      options.skey_pwd = skey_pwd;
+      options.InitSSTEncryption();
+
+      open_options_.skey_pwd = skey_pwd;
+      open_options_.ctx = options.ctx;
+    }
+    
+    #ifdef CSA
+    if (FLAGS_allow_remote_compaction) {
+      std::vector<std::shared_ptr<EventListener>> remote_listeners;
+      std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
+          remote_table_properties_collector_factories;
+      options.compaction_service = std::make_shared<MyTestCompactionService>(
+          db_name, options, dbstats, remote_listeners,
+          remote_table_properties_collector_factories);
+    }
+    #endif
     // Open with column families if necessary.
     if (FLAGS_num_column_families > 1) {
       size_t num_hot = FLAGS_num_column_families;

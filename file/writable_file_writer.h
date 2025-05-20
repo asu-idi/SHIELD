@@ -22,6 +22,10 @@
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
 
+extern "C" {
+  #include "sst-c-api/c_api.h"
+}
+
 namespace ROCKSDB_NAMESPACE {
 class Statistics;
 class SystemClock;
@@ -136,7 +140,6 @@ class WritableFileWriter {
   std::string file_name_;
   FSWritableFilePtr writable_file_;
   SystemClock* clock_;
-  AlignedBuffer buf_;
   size_t max_buffer_size_;
   // Actually written data size can be used for truncate
   // not counting padding data
@@ -168,6 +171,10 @@ class WritableFileWriter {
   Temperature temperature_;
 
  public:
+  AlignedBuffer buf_;
+  session_key_list_t *s_key_list_ = init_empty_session_key_list();
+  std::uint64_t iv_high_;
+  std::uint64_t iv_low_;
   WritableFileWriter(
       std::unique_ptr<FSWritableFile>&& file, const std::string& _file_name,
       const FileOptions& options, SystemClock* clock = nullptr,
@@ -176,7 +183,10 @@ class WritableFileWriter {
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
       FileChecksumGenFactory* file_checksum_gen_factory = nullptr,
       bool perform_data_verification = false,
-      bool buffered_data_with_checksum = false)
+      bool buffered_data_with_checksum = false,
+      session_key_list_t *s_key_list = nullptr,
+      std::uint64_t iv_high = 0,
+      std::uint64_t iv_low = 0)
       : file_name_(_file_name),
         writable_file_(std::move(file), io_tracer, _file_name),
         clock_(clock),
@@ -196,7 +206,10 @@ class WritableFileWriter {
         checksum_finalized_(false),
         perform_data_verification_(perform_data_verification),
         buffered_data_crc32c_checksum_(0),
-        buffered_data_with_checksum_(buffered_data_with_checksum) {
+        buffered_data_with_checksum_(buffered_data_with_checksum),
+        s_key_list_(s_key_list),
+        iv_high_(iv_high),
+        iv_low_(iv_low) {
     temperature_ = options.temperature;
     assert(!use_direct_io() || max_buffer_size_ > 0);
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",

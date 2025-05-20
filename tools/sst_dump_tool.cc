@@ -20,6 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 static const std::vector<std::pair<CompressionType, const char*>>
     kCompressions = {
         {CompressionType::kNoCompression, "kNoCompression"},
+        {CompressionType::kEncryptedCompression, "kEncryptedCompression"},
         {CompressionType::kSnappyCompression, "kSnappyCompression"},
         {CompressionType::kZlibCompression, "kZlibCompression"},
         {CompressionType::kBZip2Compression, "kBZip2Compression"},

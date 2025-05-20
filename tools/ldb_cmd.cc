@@ -706,6 +706,9 @@ bool LDBCommand::ParseCompressionTypeOption(
     } else if (comp == "zstd") {
       value = kZSTD;
       return true;
+    } else if (comp == "encrypt") {
+      value = kEncryptedCompression;
+      return true;
     } else {
       // Unknown compression.
       exec_state = LDBCommandExecuteResult::Failed(

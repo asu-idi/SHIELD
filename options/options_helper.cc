@@ -367,6 +367,7 @@ std::unordered_map<std::string, CompressionType>
         {"kLZ4HCCompression", kLZ4HCCompression},
         {"kXpressCompression", kXpressCompression},
         {"kZSTD", kZSTD},
+        {"kEncryptedCompression", kEncryptedCompression},
         {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
         {"kDisableCompressionOption", kDisableCompressionOption}};
 

@@ -264,6 +264,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {PREFETCH_BYTES, "rocksdb.prefetch.bytes"},
     {PREFETCH_BYTES_USEFUL, "rocksdb.prefetch.bytes.useful"},
     {PREFETCH_HITS, "rocksdb.prefetch.hits"},
+    {ENCRYPTION_CALL_COUNT, "rocksdb.encryption.call.count"},
+    {DECRYPTION_CALL_COUNT, "rocksdb.decryption.call.count"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -332,6 +334,8 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {ASYNC_PREFETCH_ABORT_MICROS, "rocksdb.async.prefetch.abort.micros"},
     {TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
      "rocksdb.table.open.prefetch.tail.read.bytes"},
+    {ENCRYPTION_AVG_TIME_MICROS, "rocksdb.encryption.avg.time.micros"},
+    {DECRYPTION_AVG_TIME_MICROS, "rocksdb.decryption.avg.time.micros"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {

@@ -32,6 +32,10 @@
 #include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
 
+extern "C" {
+  #include "sst-c-api/c_api.h"
+}
+
 #ifdef max
 #undef max
 #endif
@@ -473,6 +477,10 @@ struct DBOptions {
   // An optional cache object is passed in for the memory of the
   // memtable to cost to
   DBOptions* OptimizeForSmallDb(std::shared_ptr<Cache>* cache = nullptr);
+
+  SST_ctx_t *ctx;
+  std::string skey_pwd = "password";
+  DBOptions* InitSSTEncryption();
 
   // By default, RocksDB uses only one background thread for flush and
   // compaction. Calling this function will set it up such that total of
@@ -2151,6 +2159,12 @@ struct CompactionServiceOptionsOverride {
 struct OpenAndCompactOptions {
   // Allows cancellation of an in-progress compaction.
   std::atomic<bool>* canceled = nullptr;
+
+  std::string hdfs_address = "hdfs://10.218.110.135:9000/";
+
+  std::string csa_address = "10.218.110.135:8010";
+
+  int64_t csa_max_concurrent_tasks = 5;
 };
 
 struct LiveFilesStorageInfoOptions {

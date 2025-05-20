@@ -329,10 +329,16 @@ IOStatus BlockFetcher::ReadBlockContents() {
     PERF_TIMER_GUARD(block_decompress_time);
     // compressed page, uncompress, update cache
     UncompressionContext context(compression_type_);
-    UncompressionInfo info(context, uncompression_dict_, compression_type_);
+    UncompressionInfo info(context, uncompression_dict_, compression_type_,
+                          //  this->ioptions_.ctx, this->file_->s_key_list_, this->offset,
+                           this->ioptions_.ctx, this->file_->s_key_list_, this->file_->enc_offset_,
+                           this->file_->iv_high_,
+                           this->file_->iv_low_);
     io_status_ = status_to_io_status(UncompressSerializedBlock(
         info, slice_.data(), block_size_, contents_, footer_.format_version(),
         ioptions_, memory_allocator_));
+    this->file_->enc_offset_ += this->block_size_with_trailer_;
+    // this->offset += this->block_size_with_trailer_;
 #ifndef NDEBUG
     num_heap_buf_memcpy_++;
 #endif

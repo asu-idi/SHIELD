@@ -9,6 +9,7 @@
 #include <cinttypes>
 
 #include "db/builder.h"
+#include "db/compaction/compaction_service.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/periodic_task_scheduler.h"
@@ -27,6 +28,10 @@
 #include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
 #include "util/udt_util.h"
+
+extern "C" {
+  #include "sst-c-api/c_api.h"
+}
 
 namespace ROCKSDB_NAMESPACE {
 Options SanitizeOptions(const std::string& dbname, const Options& src,
@@ -1192,8 +1197,12 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
     // paranoid_checks==false so that corruptions cause entire commits
     // to be skipped instead of propagating bad information (like overly
     // large sequence numbers).
+    // log::Reader reader(immutable_db_options_.info_log, std::move(file_reader),
+    //                    &reporter, true /*checksum*/, wal_number);
     log::Reader reader(immutable_db_options_.info_log, std::move(file_reader),
-                       &reporter, true /*checksum*/, wal_number);
+                       &reporter, true /*checksum*/, wal_number, 
+                       immutable_db_options_.ctx, immutable_db_options_.skey_pwd);
+
 
     // Determine if we should tolerate incomplete records at the tail end of the
     // Read all the records and add to a memtable
@@ -1883,7 +1892,7 @@ Status DB::OpenAndTrimHistory(
 
 IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
                            size_t preallocate_block_size,
-                           log::Writer** new_log) {
+                           log::Writer** new_log, int max_wal_buffer_bytes) {
   IOStatus io_s;
   std::unique_ptr<FSWritableFile> lfile;
 
@@ -1918,10 +1927,32 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
         immutable_db_options_.clock, io_tracer_, nullptr /* stats */, listeners,
         nullptr, tmp_set.Contains(FileType::kWalFile),
         tmp_set.Contains(FileType::kWalFile)));
-    *new_log = new log::Writer(std::move(file_writer), log_file_num,
-                               immutable_db_options_.recycle_log_file_num > 0,
-                               immutable_db_options_.manual_wal_flush,
-                               immutable_db_options_.wal_compression);
+
+    if (immutable_db_options_.wal_compression == kEncryptedCompression) {
+      sprintf(immutable_db_options_.ctx->config->purpose[immutable_db_options_.ctx->config->purpose_index], "{\"group\":\"CompactionNodes\"}");
+      session_key_list_t* session_key_t = NULL;
+      while (session_key_t == NULL) {
+        session_key_t = get_session_key(immutable_db_options_.ctx, NULL);
+      }
+
+      unsigned int s_key_id = convert_skid_buf_to_int(session_key_t->s_key[0].key_id, 8);
+      std::string session_key_file_name = "/path/to/db/" + std::to_string(s_key_id) + ".skey";
+      // save_session_key_list(session_key_t, session_key_file_name.c_str());
+      char salt[] = "salt";
+      save_session_key_list_with_password(session_key_t, session_key_file_name.c_str(), immutable_db_options_.skey_pwd.c_str(), immutable_db_options_.skey_pwd.length(), salt, sizeof(salt));
+
+      *new_log = new log::Writer(std::move(file_writer), log_file_num,
+                                immutable_db_options_.recycle_log_file_num > 0,
+                                immutable_db_options_.manual_wal_flush,
+                                immutable_db_options_.wal_compression,
+                                session_key_t, max_wal_buffer_bytes);
+    } else {
+      *new_log = new log::Writer(std::move(file_writer), log_file_num,
+                                immutable_db_options_.recycle_log_file_num > 0,
+                                immutable_db_options_.manual_wal_flush,
+                                immutable_db_options_.wal_compression,
+                                nullptr, max_wal_buffer_bytes);
+    }
     io_s = (*new_log)->AddCompressionTypeRecord();
   }
   return io_s;
@@ -1931,6 +1962,21 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                     const std::vector<ColumnFamilyDescriptor>& column_families,
                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
                     const bool seq_per_batch, const bool batch_per_txn) {
+  #ifdef CSA
+  std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
+      remote_table_properties_collector_factories;
+  Options compaction_options;
+  auto& tmp_options = const_cast<DBOptions&>(db_options);
+  auto& compaction_stats =
+      const_cast<std::shared_ptr<Statistics>&>(db_options.statistics);
+  auto& remote_listeners =
+      const_cast<std::vector<std::shared_ptr<EventListener>>&>(
+          db_options.listeners);
+  // tmp_options.compaction_service = std::make_shared<MyTestCompactionService>(
+  //     dbname, compaction_options, compaction_stats, remote_listeners,
+  //     remote_table_properties_collector_factories);
+  #endif
+
   Status s = ValidateOptionsByTable(db_options, column_families);
   if (!s.ok()) {
     return s;
@@ -2008,7 +2054,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     const size_t preallocate_block_size =
         impl->GetWalPreallocateBlockSize(max_write_buffer_size);
     s = impl->CreateWAL(new_log_number, 0 /*recycle_log_number*/,
-                        preallocate_block_size, &new_log);
+                        preallocate_block_size, &new_log, 
+                        column_families[0].options.compression_opts.max_wal_buffer_bytes);
     if (s.ok()) {
       InstrumentedMutexLock wl(&impl->log_write_mutex_);
       impl->logfile_number_ = new_log_number;

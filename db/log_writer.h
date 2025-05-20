@@ -22,6 +22,10 @@
 #include "util/compression.h"
 #include "util/hash_containers.h"
 
+extern "C" {
+  #include "sst-c-api/c_api.h"
+}
+
 namespace ROCKSDB_NAMESPACE {
 
 class WritableFileWriter;
@@ -76,10 +80,16 @@ class Writer {
   // Create a writer that will append data to "*dest".
   // "*dest" must be initially empty.
   // "*dest" must remain live while this Writer is in use.
+//   explicit Writer(std::unique_ptr<WritableFileWriter>&& dest,
+//                   uint64_t log_number, bool recycle_log_files,
+//                   bool manual_flush = false,
+//                   CompressionType compressionType = kNoCompression);
   explicit Writer(std::unique_ptr<WritableFileWriter>&& dest,
                   uint64_t log_number, bool recycle_log_files,
                   bool manual_flush = false,
-                  CompressionType compressionType = kNoCompression);
+                  CompressionType compressionType = kNoCompression,
+                  session_key_list_t* session_key_list = nullptr,
+                  int max_wal_buffer_bytes = 0);
   // No copying allowed
   Writer(const Writer&) = delete;
   void operator=(const Writer&) = delete;
@@ -109,6 +119,7 @@ class Writer {
   IOStatus Close();
 
   bool BufferIsEmpty();
+  int max_wal_buffer_bytes_;
 
  private:
   std::unique_ptr<WritableFileWriter> dest_;
@@ -139,6 +150,7 @@ class Writer {
   // Since the user-defined timestamp size cannot be changed while the DB is
   // running, existing entry in this map cannot be updated.
   UnorderedMap<uint32_t, size_t> recorded_cf_to_ts_sz_;
+  session_key_list_t* s_key_list_;
 };
 
 }  // namespace log

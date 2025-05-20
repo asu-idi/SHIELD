@@ -25,6 +25,7 @@ enum CompressionType : unsigned char {
   kLZ4HCCompression = 0x5,
   kXpressCompression = 0x6,
   kZSTD = 0x7,
+  kEncryptedCompression = 0x8,
 
   // Only use kZSTDNotFinalCompression if you have to use ZSTD lib older than
   // 0.8.0 or consider a possibility of downgrading the service or copying

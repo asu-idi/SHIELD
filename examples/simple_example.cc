@@ -21,7 +21,7 @@ using ROCKSDB_NAMESPACE::WriteOptions;
 #if defined(OS_WIN)
 std::string kDBPath = "C:\\Windows\\TEMP\\rocksdb_simple_example";
 #else
-std::string kDBPath = "/tmp/rocksdb_simple_example";
+std::string kDBPath = "tmp/db/path";
 #endif
 
 int main() {
@@ -29,7 +29,12 @@ int main() {
   Options options;
   // Optimize RocksDB. This is the easiest way to get RocksDB to perform well
   options.IncreaseParallelism();
-  options.OptimizeLevelStyleCompaction();
+  // This option modifies compression_per_level. And compression_per_level takes
+  // precedence over compression. Do not set this
+  // options.OptimizeLevelStyleCompaction();
+  options.InitSSTEncryption();
+  options.compression = rocksdb::CompressionType::kEncryptedCompression;
+  // options.compression = rocksdb::CompressionType::kSnappyCompression;
   // create the DB if it's not already present
   options.create_if_missing = true;
 
@@ -38,13 +43,18 @@ int main() {
   assert(s.ok());
 
   // Put key-value
-  s = db->Put(WriteOptions(), "key1", "value");
-  assert(s.ok());
+  for (int i = 0; i < 1000000; i++) {
+    s = db->Put(WriteOptions(), "key" + std::to_string(i), "valuecahvcshavjhsvhavhsavbcjhavchabckhabchsadvbchadvcjhdvcjgdvcjbadhcbadhkcbakhcbaskjcbsaljbcsaljcbjalscjlasncjlsanclj");
+    assert(s.ok());
+  }
+  printf("Completed putting 1000000 key-value pairs\n");
+
   std::string value;
+
   // get value
   s = db->Get(ReadOptions(), "key1", &value);
   assert(s.ok());
-  assert(value == "value");
+  assert(value == "valuecahvcshavjhsvhavhsavbcjhavchabckhabchsadvbchadvcjhdvcjgdvcjbadhcbadhkcbakhcbaskjcbsaljbcsaljcbjalscjlasncjlsanclj");
 
   // atomically apply a set of updates
   {
@@ -58,12 +68,12 @@ int main() {
   assert(s.IsNotFound());
 
   db->Get(ReadOptions(), "key2", &value);
-  assert(value == "value");
+  assert(value == "valuecahvcshavjhsvhavhsavbcjhavchabckhabchsadvbchadvcjhdvcjgdvcjbadhcbadhkcbakhcbaskjcbsaljbcsaljcbjalscjlasncjlsanclj");
 
   {
     PinnableSlice pinnable_val;
     db->Get(ReadOptions(), db->DefaultColumnFamily(), "key2", &pinnable_val);
-    assert(pinnable_val == "value");
+    assert(pinnable_val == "valuecahvcshavjhsvhavhsavbcjhavchabckhabchsadvbchadvcjhdvcjgdvcjbadhcbadhkcbakhcbaskjcbsaljbcsaljcbjalscjlasncjlsanclj");
   }
 
   {

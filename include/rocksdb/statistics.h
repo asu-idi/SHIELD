@@ -531,6 +531,10 @@ enum Tickers : uint32_t {
   // Number of FS reads avoided due to scan prefetching
   PREFETCH_HITS,
 
+  // For encryption stats
+  ENCRYPTION_CALL_COUNT,
+  DECRYPTION_CALL_COUNT,
+
   TICKER_ENUM_MAX
 };
 
@@ -659,6 +663,10 @@ enum Histograms : uint32_t {
   // Number of bytes read for RocksDB's prefetching contents (as opposed to file
   // system's prefetch) from the end of SST table during block based table open
   TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
+
+  // For Encryption
+  ENCRYPTION_AVG_TIME_MICROS,
+  DECRYPTION_AVG_TIME_MICROS,
 
   HISTOGRAM_ENUM_MAX
 };

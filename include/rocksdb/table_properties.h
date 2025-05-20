@@ -72,6 +72,9 @@ struct TablePropertiesNames {
   static const std::string kSequenceNumberTimeMapping;
   static const std::string kTailStartOffset;
   static const std::string kUserDefinedTimestampsPersisted;
+  static const std::string kEncryptionSessionKeyID;
+  static const std::string kEncryptionIvHigh;
+  static const std::string kEncryptionIvLow;
 };
 
 // `TablePropertiesCollector` provides the mechanism for users to collect
@@ -314,6 +317,10 @@ struct TableProperties {
   // user collected properties
   UserCollectedProperties user_collected_properties;
   UserCollectedProperties readable_properties;
+
+  std::string sst_encryption_key_id;
+  uint64_t iv_high = 0;
+  uint64_t iv_low = 0;
 
   // convert this object to a human readable form
   //   @prop_delim: delimiter for each property.

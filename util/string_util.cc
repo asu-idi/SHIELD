@@ -158,6 +158,21 @@ std::string TimeToHumanString(int unixtime) {
   return std::string(time_buffer);
 }
 
+std::string TimeToStringMicros(uint64_t microsSince1970) {
+  const time_t seconds = (time_t)microsSince1970/1000000;
+  struct tm t;
+  int maxsize = 64;
+  std::string dummy;
+  dummy.reserve(maxsize);
+  dummy.resize(maxsize);
+  char* p = &dummy[0];
+  port::LocalTimeR(&seconds, &t);
+  snprintf(p, maxsize, "%04d/%02d/%02d-%02d:%02d:%02d.%06d", t.tm_year + 1900,
+            t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec,
+            static_cast<int>(microsSince1970 % 1000000));
+  return dummy;
+}
+
 std::string EscapeString(const Slice& value) {
   std::string r;
   AppendEscapedStringTo(&r, value);

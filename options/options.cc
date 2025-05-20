@@ -33,6 +33,10 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "util/compression.h"
 
+extern "C" {
+  #include "sst-c-api/c_api.h"
+}
+
 namespace ROCKSDB_NAMESPACE {
 
 AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions() {
@@ -687,6 +691,13 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeUniversalStyleCompaction(
   // universal style compaction
   compaction_style = kCompactionStyleUniversal;
   compaction_options_universal.compression_size_percent = 80;
+  return this;
+}
+
+DBOptions* DBOptions::InitSSTEncryption() {
+  char *config_path = (char *) "../examples/c_client.config";
+  ctx = init_SST(config_path);
+
   return this;
 }
 

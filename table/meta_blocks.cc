@@ -164,6 +164,13 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
     Add(TablePropertiesNames::kSequenceNumberTimeMapping,
         props.seqno_to_time_mapping);
   }
+
+  Add(TablePropertiesNames::kEncryptionSessionKeyID, 
+      props.sst_encryption_key_id);
+  Add(TablePropertiesNames::kEncryptionIvHigh, 
+      props.iv_high);
+  Add(TablePropertiesNames::kEncryptionIvLow, 
+      props.iv_low);
 }
 
 Slice PropertyBlockBuilder::Finish() {
@@ -318,6 +325,10 @@ Status ReadTablePropertiesHelper(
        &new_table_properties->tail_start_offset},
       {TablePropertiesNames::kUserDefinedTimestampsPersisted,
        &new_table_properties->user_defined_timestamps_persisted},
+      {TablePropertiesNames::kEncryptionIvHigh,
+       &new_table_properties->iv_high},
+      {TablePropertiesNames::kEncryptionIvLow,
+       &new_table_properties->iv_low},
   };
 
   std::string last_key;
@@ -387,6 +398,8 @@ Status ReadTablePropertiesHelper(
       new_table_properties->compression_options = raw_val.ToString();
     } else if (key == TablePropertiesNames::kSequenceNumberTimeMapping) {
       new_table_properties->seqno_to_time_mapping = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kEncryptionSessionKeyID) {
+      new_table_properties->sst_encryption_key_id = raw_val.ToString();
     } else {
       // handle user-collected properties
       new_table_properties->user_collected_properties.insert(

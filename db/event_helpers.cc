@@ -137,6 +137,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << table_properties.slow_compression_estimated_data_size
               << "fast_compression_estimated_data_size"
               << table_properties.fast_compression_estimated_data_size
+              << "iv_high" << table_properties.iv_high << "iv_low" << table_properties.iv_low 
               << "db_id" << table_properties.db_id << "db_session_id"
               << table_properties.db_session_id << "orig_file_number"
               << table_properties.orig_file_number << "seqno_to_time_mapping";

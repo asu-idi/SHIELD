@@ -87,6 +87,11 @@ endif()
 
 include(CMakeDependentOption)
 
+option(WITH_CSA "build with CSA" ON)
+if (WITH_CSA)
+  include(${PROJECT_SOURCE_DIR}/cmake/modules/grpc.cmake)
+endif()
+
 if(MSVC)
   option(WITH_GFLAGS "build with GFlags" OFF)
   option(WITH_XPRESS "build with windows built in compression" OFF)
@@ -148,6 +153,18 @@ else()
     find_package(ZLIB REQUIRED)
     add_definitions(-DZLIB)
     list(APPEND THIRDPARTY_LIBS ZLIB::ZLIB)
+  endif()
+
+  option(WITH_SSTLIB "build sst library" ON)
+  if (WITH_SSTLIB)
+    find_package(OpenSSL REQUIRED)
+    find_package(Threads REQUIRED)
+
+    add_subdirectory(sst-c-api)
+    message(STATUS "SSTLIB: ${SSTLIB}")
+
+    add_definitions(-DSST)
+    list(APPEND THIRDPARTY_LIBS SSTLIB)
   endif()
 
   option(WITH_BZ2 "build with bzip2" OFF)
@@ -332,7 +349,7 @@ if (NOT WITH_PERF_CONTEXT)
   add_definitions(-DNPERF_CONTEXT)
 endif()
 
-option(FAIL_ON_WARNINGS "Treat compile warnings as errors" ON)
+option(FAIL_ON_WARNINGS "Treat compile warnings as errors" OFF)
 if(FAIL_ON_WARNINGS)
   if(MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /WX")
@@ -433,7 +450,7 @@ else()
 endif()
 
 # Used to run CI build and tests so we can run faster
-option(OPTDBG "Build optimized debug build with MSVC" OFF)
+option(OPTDBG "Build optimized debug build with MSVC" ON)
 option(WITH_RUNTIME_DEBUG "build with debug version of runtime library" ON)
 if(MSVC)
   if(OPTDBG)
@@ -616,6 +633,41 @@ if(USE_FOLLY)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--copy-dt-needed-entries")
 endif()
 find_package(Threads REQUIRED)
+
+if (WITH_CSA)
+  # Proto file
+  get_filename_component(csa_proto "db/compaction/remote_compaction/protos/csa.proto" ABSOLUTE)
+  get_filename_component(csa_proto_path "${csa_proto}" PATH)
+
+  # Generated sources
+  set(csa_proto_srcs "${CMAKE_CURRENT_BINARY_DIR}/csa.pb.cc")
+  set(csa_proto_hdrs "${CMAKE_CURRENT_BINARY_DIR}/csa.pb.h")
+  set(csa_grpc_srcs "${CMAKE_CURRENT_BINARY_DIR}/csa.grpc.pb.cc")
+  set(csa_grpc_hdrs "${CMAKE_CURRENT_BINARY_DIR}/csa.grpc.pb.h")
+  add_custom_command(
+          OUTPUT "${csa_proto_srcs}" "${csa_proto_hdrs}" "${csa_grpc_srcs}" "${csa_grpc_hdrs}"
+          COMMAND ${_PROTOBUF_PROTOC}
+          ARGS --grpc_out "${CMAKE_CURRENT_BINARY_DIR}"
+          --cpp_out "${CMAKE_CURRENT_BINARY_DIR}"
+          -I "${csa_proto_path}"
+          --plugin=protoc-gen-grpc="${_GRPC_CPP_PLUGIN_EXECUTABLE}"
+          "${csa_proto}"
+          DEPENDS "${csa_proto}")
+
+  # Include generated *.pb.h files
+  include_directories("${CMAKE_CURRENT_BINARY_DIR}")
+
+  # csa_grpc_proto
+  add_library(csa_grpc_proto
+          ${csa_grpc_srcs}
+          ${csa_grpc_hdrs}
+          ${csa_proto_srcs}
+          ${csa_proto_hdrs})
+  target_link_libraries(csa_grpc_proto
+          ${_REFLECTION}
+          ${_GRPC_GRPCPP}
+          ${_PROTOBUF_LIBPROTOBUF})
+endif()
 
 # Main library source code
 
@@ -938,6 +990,13 @@ set(SOURCES
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc)
 
+if (WITH_CSA)
+  list(APPEND SOURCES
+        db/compaction/compaction_service.cc
+        ${csa_grpc_srcs}
+        ${csa_proto_srcs})
+endif()
+
 list(APPEND SOURCES
   utilities/transactions/lock/range/range_tree/lib/locktree/concurrent_tree.cc
   utilities/transactions/lock/range/range_tree/lib/locktree/keyrange.cc
@@ -951,6 +1010,12 @@ list(APPEND SOURCES
   utilities/transactions/lock/range/range_tree/lib/standalone_port.cc
   utilities/transactions/lock/range/range_tree/lib/util/dbt.cc
   utilities/transactions/lock/range/range_tree/lib/util/memarena.cc)
+
+option(WITH_HDFS "build with HDFS and write data to HDFS" OFF)
+if(WITH_HDFS)
+  set(ROCKSDB_PLUGINS "hdfs")
+  add_definitions(-DHDFS)
+endif ()
 
 message(STATUS "ROCKSDB_PLUGINS: ${ROCKSDB_PLUGINS}")
 if ( ROCKSDB_PLUGINS )
@@ -1033,6 +1098,14 @@ if(USE_FOLLY_LITE)
   include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
   add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
   list(APPEND THIRDPARTY_LIBS glog)
+endif()
+
+if (WITH_CSA)
+  list(APPEND THIRDPARTY_LIBS
+          ${_REFLECTION}
+          ${_GRPC_GRPCPP}
+          ${_PROTOBUF_LIBPROTOBUF})
+  add_definitions(-DCSA)
 endif()
 
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
@@ -1200,7 +1273,7 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
   install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/modules" COMPONENT devel DESTINATION ${package_config_destination})
 
   install(
-    TARGETS ${ROCKSDB_STATIC_LIB}
+    TARGETS ${ROCKSDB_STATIC_LIB} SSTLIB
     EXPORT RocksDBTargets
     COMPONENT devel
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
@@ -1476,6 +1549,19 @@ if(WITH_TESTS)
   set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
   add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
   target_link_libraries(${TESTUTILLIB} ${ROCKSDB_LIB} ${FOLLY_LIBS})
+
+  # Targets compaction_service_(client|server)
+  foreach(_target csa_server)
+    add_executable(${_target}
+            "db/compaction/remote_compaction/${_target}.cc")
+    target_link_libraries(${_target}
+            #          compaction_service_helper
+            ${_REFLECTION}
+            ${_GRPC_GRPCPP}
+            ${_PROTOBUF_LIBPROTOBUF}
+            ${ROCKSDB_LIB})
+  endforeach()
+
   if(MSVC)
     set_target_properties(${TESTUTILLIB} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/testutillib${ARTIFACT_SUFFIX}.pdb")
   endif()
@@ -1519,6 +1605,20 @@ if(WITH_TESTS)
     add_test(NAME c_test COMMAND c_test${ARTIFACT_SUFFIX})
     add_dependencies(check c_test)
   endif()
+endif()
+
+if(WITH_CSA)
+  # Targets compaction_service_(client|server)
+  foreach(_target csa_server)
+    add_executable(${_target}
+            "db/compaction/remote_compaction/${_target}.cc")
+    target_link_libraries(${_target}
+            #          compaction_service_helper
+            ${_REFLECTION}
+            ${_GRPC_GRPCPP}
+            ${_PROTOBUF_LIBPROTOBUF}
+            ${ROCKSDB_LIB})
+  endforeach()
 endif()
 
 if(WITH_BENCHMARK_TOOLS)

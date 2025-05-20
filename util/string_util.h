@@ -83,6 +83,10 @@ extern std::string BytesToHumanString(uint64_t bytes);
 // ex: 1562116015 -> "Tue Jul  2 18:06:55 2019"
 extern std::string TimeToHumanString(int unixtime);
 
+// Return a human-readable version of unix time
+// ex: 1562116015389292 -> "2019/07/02-18:06:55.389292"
+extern std::string TimeToStringMicros(uint64_t microsSince1970);
+
 // Append a human-readable time in micros.
 int AppendHumanMicros(uint64_t micros, char* output, int len,
                       bool fixed_format);

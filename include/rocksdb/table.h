@@ -28,6 +28,10 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
+extern "C" {
+  #include "sst-c-api/c_api.h"
+}
+
 namespace ROCKSDB_NAMESPACE {
 
 // -- Block-based Table
@@ -661,6 +665,8 @@ struct BlockBasedTableOptions {
   //
   // Default: 2
   uint64_t num_file_reads_for_auto_readahead = 2;
+
+  session_key_list_t *s_key_list = init_empty_session_key_list();
 };
 
 // Table Properties that are specific to block-based table properties.

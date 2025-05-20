@@ -46,6 +46,34 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       hash_state_(nullptr),
       uncompress_hash_state_(nullptr){};
 
+Reader::Reader(std::shared_ptr<Logger> info_log,
+               std::unique_ptr<SequentialFileReader>&& _file,
+               Reporter* reporter, bool checksum, uint64_t log_num,
+               SST_ctx_t* sst_ctx, std::string skey_pwd)
+    : info_log_(info_log),
+      file_(std::move(_file)),
+      reporter_(reporter),
+      checksum_(checksum),
+      backing_store_(new char[kBlockSize]),
+      buffer_(),
+      eof_(false),
+      read_error_(false),
+      eof_offset_(0),
+      last_record_offset_(0),
+      end_of_buffer_offset_(0),
+      log_number_(log_num),
+      recycled_(false),
+      first_record_read_(false),
+      compression_type_(kNoCompression),
+      compression_type_record_read_(false),
+      uncompress_(nullptr),
+      hash_state_(nullptr),
+      uncompress_hash_state_(nullptr),
+      sst_ctx_(sst_ctx),
+      skey_pwd_(skey_pwd){
+        s_key_list_ = init_empty_session_key_list();
+      };
+
 Reader::~Reader() {
   delete[] backing_store_;
   if (uncompress_) {
@@ -207,6 +235,21 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
               ts_record.GetUserDefinedTimestampSize());
           if (!s.ok()) {
             ReportCorruption(fragment.size(), s.getState());
+          }
+        }
+        break;
+      }
+      case kSessionKeyIDType: {
+        unsigned int session_key_id_int = convert_skid_buf_to_int((unsigned char *)fragment.data(), SESSION_KEY_ID_SIZE);
+        std::string session_key_file_name = "/path/to/db/" + std::to_string(session_key_id_int) + ".skey"; 
+
+        char salt[] = "salt";
+        session_key_t *session_key = NULL;
+        while (session_key == NULL) {
+          if (load_session_key_list_with_password(this->s_key_list_, session_key_file_name.c_str(), skey_pwd_.c_str(), skey_pwd_.length(), salt, sizeof(salt))) {
+            session_key = get_session_key_by_ID((unsigned char*)fragment.data(), this->sst_ctx_, this->s_key_list_);
+          } else {
+            break;
           }
         }
         break;
@@ -528,7 +571,8 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
 
     if (!uncompress_ || type == kSetCompressionType ||
         type == kUserDefinedTimestampSizeType ||
-        type == kRecyclableUserDefinedTimestampSizeType) {
+        type == kRecyclableUserDefinedTimestampSizeType ||
+        type == kSessionKeyIDType) {
       *result = Slice(header + header_size, length);
       return type;
     } else {
@@ -588,8 +632,14 @@ void Reader::InitCompression(const CompressionTypeRecord& compression_record) {
   compression_type_ = compression_record.GetCompressionType();
   compression_type_record_read_ = true;
   constexpr uint32_t compression_format_version = 2;
-  uncompress_ = StreamingUncompress::Create(
-      compression_type_, compression_format_version, kBlockSize);
+  if (compression_type_ == CompressionType::kEncryptedCompression) {
+    uncompress_ = StreamingUncompress::Create(
+        compression_type_, compression_format_version, kBlockSize,
+        this->s_key_list_);
+  } else {
+    uncompress_ = StreamingUncompress::Create(
+        compression_type_, compression_format_version, kBlockSize);
+  }
   assert(uncompress_ != nullptr);
   uncompressed_buffer_ = std::unique_ptr<char[]>(new char[kBlockSize]);
   assert(uncompressed_buffer_);

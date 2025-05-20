@@ -2271,7 +2271,8 @@ class DBImpl : public DB {
   Env::WriteLifeTimeHint CalculateWALWriteHint() { return Env::WLTH_SHORT; }
 
   IOStatus CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
-                     size_t preallocate_block_size, log::Writer** new_log);
+                     size_t preallocate_block_size, log::Writer** new_log,
+                     int max_wal_buffer_bytes = 0);
 
   // Validate self-consistency of DB options
   static Status ValidateOptions(const DBOptions& db_options);

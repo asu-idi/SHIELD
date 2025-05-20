@@ -112,6 +112,10 @@ Status DBImplSecondary::FindNewLogNumbers(std::vector<uint64_t>* logs) {
     return s;
   }
 
+  // Viraj: These lines serve as a workaround for offloaded compaction server.
+  logs->clear();
+  return s;
+
   // if log_readers_ is non-empty, it means we have applied all logs with log
   // numbers smaller than the smallest log in log_readers_, so there is no
   // need to pass these logs to RecoverLogFiles
@@ -979,6 +983,8 @@ Status DB::OpenAndCompact(
     column_families.emplace_back(kDefaultColumnFamilyName,
                                  compaction_input.column_family.options);
   }
+
+  compaction_input.db_options.InitSSTEncryption();
 
   DB* db;
   std::vector<ColumnFamilyHandle*> handles;

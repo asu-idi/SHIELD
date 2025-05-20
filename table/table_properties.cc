@@ -168,6 +168,9 @@ std::string TableProperties::ToString(const std::string& prop_delim,
                  s.ok() ? seq_time_mapping.ToHumanString() : "N/A", prop_delim,
                  kv_delim);
 
+  AppendProperty(result, "iv high", iv_high, prop_delim, kv_delim);
+  AppendProperty(result, "iv low", iv_low, prop_delim, kv_delim);
+
   return result;
 }
 
@@ -191,6 +194,8 @@ void TableProperties::Add(const TableProperties& tp) {
       tp.slow_compression_estimated_data_size;
   fast_compression_estimated_data_size +=
       tp.fast_compression_estimated_data_size;
+  iv_high += tp.iv_high;
+  iv_low += tp.iv_low;
 }
 
 std::map<std::string, uint64_t>
@@ -235,7 +240,8 @@ std::size_t TableProperties::ApproximateMemoryUsage() const {
       column_family_name.size() + filter_policy_name.size() +
       comparator_name.size() + merge_operator_name.size() +
       prefix_extractor_name.size() + property_collectors_names.size() +
-      compression_name.size() + compression_options.size();
+      compression_name.size() + compression_options.size() + 
+      sst_encryption_key_id.size() + seqno_to_time_mapping.size();
   usage += string_props_mem_usage;
 
   for (auto iter = user_collected_properties.begin();
@@ -311,7 +317,12 @@ const std::string TablePropertiesNames::kTailStartOffset =
     "rocksdb.tail.start.offset";
 const std::string TablePropertiesNames::kUserDefinedTimestampsPersisted =
     "rocksdb.user.defined.timestamps.persisted";
-
+const std::string TablePropertiesNames::kEncryptionSessionKeyID = 
+    "rocksdb.encryption.file.session.id";
+const std::string TablePropertiesNames::kEncryptionIvHigh= 
+    "rocksdb.encryption.file.ivHigh";
+const std::string TablePropertiesNames::kEncryptionIvLow= 
+    "rocksdb.encryption.file.ivLow";
 #ifndef NDEBUG
 // WARNING: TEST_SetRandomTableProperties assumes the following layout of
 // TableProperties

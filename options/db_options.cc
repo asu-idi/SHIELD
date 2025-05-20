@@ -25,6 +25,10 @@
 #include "rocksdb/wal_filter.h"
 #include "util/string_util.h"
 
+extern "C" {
+  #include "sst-c-api/c_api.h"
+}
+
 namespace ROCKSDB_NAMESPACE {
 static std::unordered_map<std::string, WALRecoveryMode>
     wal_recovery_mode_string_map = {
@@ -682,7 +686,9 @@ std::unique_ptr<Configurable> DBOptionsAsConfigurable(
 ImmutableDBOptions::ImmutableDBOptions() : ImmutableDBOptions(Options()) {}
 
 ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
-    : create_if_missing(options.create_if_missing),
+    : ctx(options.ctx),
+      skey_pwd(options.skey_pwd),
+      create_if_missing(options.create_if_missing),
       create_missing_column_families(options.create_missing_column_families),
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),

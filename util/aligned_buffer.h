@@ -231,5 +231,7 @@ class AlignedBuffer {
   char* Destination() { return bufstart_ + cursize_; }
 
   void Size(size_t cursize) { cursize_ = cursize; }
+
+  char* ReturnBufferPtr() { return buf_.get(); }
 };
 }  // namespace ROCKSDB_NAMESPACE
