@@ -1,9 +1,0 @@
-*.o
-entity_client
-entity_server
-.prettierrc
-/**/CMakeCache.txt
-/**/cmake_install.cmake
-/**/CMakeFiles/
-/**/Makefile
-**/build/**
