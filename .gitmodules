@@ -1,3 +1,6 @@
 [submodule "iotauth"]
 	path = iotauth
 	url = git@github.com:iotauth/iotauth.git
+[submodule "sst-c-api"]
+	path = sst-c-api
+	url = git@github.com:iotauth/sst-c-api.git
