@@ -72,7 +72,12 @@
 
 Please make sure you have a second server setup and have HDFS deployed on that server. Make sure you install the [RocksDB HDFS plugin](https://github.com/asu-idi/rocksdb-hdfs-plugin).
 
-1. Build using CMake:
+1. Initialize submodules for using [Secure Swarm Toolkit (SSTLIB)](https://github.com/iotauth) repos, [iotauth](https://github.com/iotauth/iotauth) and [sst-c-api](https://github.com/iotauth/sst-c-api).
+    ```
+    git submodule update --init
+    ```
+
+2. Build using CMake:
     ```bash
     mkdir build
     cd build
