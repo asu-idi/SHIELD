@@ -161,10 +161,10 @@ else()
     find_package(Threads REQUIRED)
 
     add_subdirectory(sst-c-api)
-    message(STATUS "SSTLIB: ${SSTLIB}")
+    message(STATUS "sst-c-api: ${sst-c-api}")
 
     add_definitions(-DSST)
-    list(APPEND THIRDPARTY_LIBS SSTLIB)
+    list(APPEND THIRDPARTY_LIBS sst-c-api)
   endif()
 
   option(WITH_BZ2 "build with bzip2" OFF)
@@ -1273,7 +1273,7 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
   install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/modules" COMPONENT devel DESTINATION ${package_config_destination})
 
   install(
-    TARGETS ${ROCKSDB_STATIC_LIB} SSTLIB
+    TARGETS ${ROCKSDB_STATIC_LIB} sst-c-api
     EXPORT RocksDBTargets
     COMPONENT devel
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
