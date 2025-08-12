@@ -689,7 +689,7 @@ Status BlockBasedTable::Open(
       std::string session_key_str = rep->table_properties->sst_encryption_key_id;
       unsigned int session_key_id_int = convert_skid_buf_to_int((unsigned char *)session_key_str.c_str(), SESSION_KEY_ID_SIZE);
 
-      std::string session_key_file_name = "/path/to/db/" + std::to_string(session_key_id_int) + ".skey";
+      std::string session_key_file_name = SESSION_KEY_BASE_PATH + std::to_string(session_key_id_int) + ".skey";
 
       rep->file->s_key_list_ = init_empty_session_key_list();
       // rep->file->iv_high_ = rep->table_properties->iv_high;

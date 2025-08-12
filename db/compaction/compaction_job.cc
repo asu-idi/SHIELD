@@ -1952,7 +1952,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
     }
 
     unsigned int s_key_id = convert_skid_buf_to_int(s_key_list->s_key[0].key_id, 8);
-    std::string session_key_file_name = "/path/to/db/" + std::to_string(s_key_id) + ".skey";
+    std::string session_key_file_name = SESSION_KEY_BASE_PATH + std::to_string(s_key_id) + ".skey";
     char salt[] = "salt";
     save_session_key_list_with_password(s_key_list, session_key_file_name.c_str(), db_options_.skey_pwd.c_str(), db_options_.skey_pwd.length(), salt, sizeof(salt));
 

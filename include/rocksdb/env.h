@@ -68,6 +68,8 @@ class FileSystem;
 class SystemClock;
 struct ConfigOptions;
 
+const std::string SESSION_KEY_BASE_PATH = "/path/to/db/";
+
 const size_t kDefaultPageSize = 4 * 1024;
 
 // Options while opening a file to read/write

@@ -24,6 +24,7 @@
 #include "options/options_helper.h"
 #include "rocksdb/table.h"
 #include "rocksdb/wal_filter.h"
+#include "rocksdb/env.h"
 #include "test_util/sync_point.h"
 #include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
@@ -1936,7 +1937,7 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
       }
 
       unsigned int s_key_id = convert_skid_buf_to_int(session_key_t->s_key[0].key_id, 8);
-      std::string session_key_file_name = "/path/to/db/" + std::to_string(s_key_id) + ".skey";
+      std::string session_key_file_name = SESSION_KEY_BASE_PATH + std::to_string(s_key_id) + ".skey";
       // save_session_key_list(session_key_t, session_key_file_name.c_str());
       char salt[] = "salt";
       save_session_key_list_with_password(session_key_t, session_key_file_name.c_str(), immutable_db_options_.skey_pwd.c_str(), immutable_db_options_.skey_pwd.length(), salt, sizeof(salt));

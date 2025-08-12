@@ -241,7 +241,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
       }
       case kSessionKeyIDType: {
         unsigned int session_key_id_int = convert_skid_buf_to_int((unsigned char *)fragment.data(), SESSION_KEY_ID_SIZE);
-        std::string session_key_file_name = "/path/to/db/" + std::to_string(session_key_id_int) + ".skey"; 
+        std::string session_key_file_name = SESSION_KEY_BASE_PATH + std::to_string(session_key_id_int) + ".skey"; 
 
         char salt[] = "salt";
         session_key_t *session_key = NULL;
