@@ -695,7 +695,7 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeUniversalStyleCompaction(
 }
 
 DBOptions* DBOptions::InitSSTEncryption() {
-  char *config_path = (char *) "../examples/c_client.config";
+  const char *config_path = "../examples/c_client.config";
   ctx = init_SST(config_path);
 
   return this;
