@@ -17,15 +17,19 @@
 ### SHIELD
 1. The code for SHIELD is integrated into RocksDB. 
 
-2. Before building RocksDB, we need to build iotauth. We have forked iotauth from its official repository and made modifications to the codebase to work best with our deployment:
+2. Before building RocksDB, we need to build iotauth. We have forked iotauth from its official repository and made modifications to the codebase to work best with our deployment.
+So first, initialize submodules for using Secure Swarm Toolkit (SSTLIB) repos, iotauth and sst-c-api.
+    ```
+    git submodule update --init
+    ```
+3. Now, create the credentials, and run the **Auth**. The terminal should be kept open running the **Auth**.
     ```bash
-    pushd ./iotauth/examples/
+    cd ./iotauth/examples/
     ./cleanAll.sh
-    ./generateAll.sh -g ./configs/rocksdb.graph
+    ./generateAll.sh -g ./configs/rocksdb.graph -p asdf
     cd ../auth/auth-server
     mvn clean install
-    java -jar target/auth-server-jar-with-dependencies.jar -p ../properties/exampleAuth101.properties
-    popd
+    java -jar target/auth-server-jar-with-dependencies.jar -p ../properties/exampleAuth101.properties --password=asdf
     ```
 
 3. Change the configurations
