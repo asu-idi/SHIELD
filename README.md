@@ -24,7 +24,7 @@ So first, initialize submodules for using Secure Swarm Toolkit (SSTLIB) repos, i
     ```
 3. Now, create the credentials, and run the **Auth**. The terminal should be kept open running the **Auth**.
     ```bash
-    cd ./iotauth/examples/
+    cd iotauth/examples/
     ./cleanAll.sh
     ./generateAll.sh -g ./configs/rocksdb.graph -p asdf
     cd ../auth/auth-server
@@ -34,11 +34,12 @@ So first, initialize submodules for using Secure Swarm Toolkit (SSTLIB) repos, i
 
 3. Change the configurations
 
-    3.1 Search for "/path/to/db/" and replace with location to save the data encryption keys. 
+    3.1 Search for `SESSION_KEY_BASE_PATH` and replace with location to save the data encryption keys. 
 
+    // TODO: DO WE NEED THIS?
     3.2 Go to ./examples/c_client.config and update the paths for the public and private keys (they are located in iotauth/entity/auth_certs (and) iotauth/entity/credentials/certs/net1)
 
-    3.3 Go to options.cc file (./options/options.cc), search for "/path/to/c_client.config" and update the path to point to the c_clients/config above. 
+    3.3 Go to `options.cc` file (./options/options.cc), search for "/path/to/c_client.config" and update the path to point to the c_clients/config above. 
 
 4. Build using CMake:
     ```bash
@@ -66,7 +67,7 @@ So first, initialize submodules for using Secure Swarm Toolkit (SSTLIB) repos, i
 ./db_bench --benchmarks=fillrandom --compression_type=none
 
 #SHIELD
-./db_bench --benchmarks=fillrandom --compression_type=encrypt --wal_compression=encrypt
+./db_bench --benchmarks=fillrandom --compression_type=encrypt --wal_compression=encrypt --sst_password=asdf
 
 #EncFS
 ./db_bench --benchmarks=fillrandom --fs_uri="provider={id=AES;hex_instance_key=0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF;method=AES256CTR};id=EncryptedFileSystem" --compression_type=none
