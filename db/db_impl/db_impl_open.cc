@@ -1930,7 +1930,7 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
         tmp_set.Contains(FileType::kWalFile)));
 
     if (immutable_db_options_.wal_compression == kEncryptedCompression) {
-      sprintf(immutable_db_options_.ctx->config->purpose[immutable_db_options_.ctx->config->purpose_index], "{\"group\":\"CompactionNodes\"}");
+      sprintf(immutable_db_options_.ctx->config->purpose[immutable_db_options_.ctx->config->purpose_index], "{\"group\":\"CompactionNodesCTR\"}");
       session_key_list_t* session_key_t = NULL;
       while (session_key_t == NULL) {
         session_key_t = get_session_key(immutable_db_options_.ctx, NULL);

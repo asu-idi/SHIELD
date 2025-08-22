@@ -1944,7 +1944,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
 
   if (sub_compact->compaction->output_compression() == kEncryptedCompression) {
 
-    sprintf(db_options_.ctx->config->purpose[db_options_.ctx->config->purpose_index], "{\"group\":\"CompactionNodes\"}");
+    sprintf(db_options_.ctx->config->purpose[db_options_.ctx->config->purpose_index], "{\"group\":\"CompactionNodesCTR\"}");
     
     session_key_list_t *s_key_list = NULL;
     while (s_key_list == NULL) {
