@@ -177,7 +177,7 @@ Status BuildTable(
       // Setup compression related things for the session
       if (tboptions.compression_type == kEncryptedCompression) {
 
-        sprintf(tboptions.ioptions.ctx->config->purpose[tboptions.ioptions.ctx->config->purpose_index], "{\"group\":\"CompactionNodesCTR\"}");
+        sprintf(tboptions.ioptions.ctx->config->purpose[tboptions.ioptions.ctx->config->purpose_index], "{\"group\":\"ComputeNodesCTR\"}");
 
         session_key_list_t *s_key_list = NULL;
         while (s_key_list == NULL) {
