@@ -24,8 +24,8 @@ struct ImmutableDBOptions {
 
   void Dump(Logger* log) const;
 
-  std::string skey_pwd;
   SST_ctx_t *ctx;
+  std::string skey_pwd;
 
   bool create_if_missing;
   bool create_missing_column_families;

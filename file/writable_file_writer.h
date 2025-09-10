@@ -190,7 +190,6 @@ class WritableFileWriter {
       : file_name_(_file_name),
         writable_file_(std::move(file), io_tracer, _file_name),
         clock_(clock),
-        buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),
         filesize_(0),
         flushed_size_(0),
@@ -207,6 +206,7 @@ class WritableFileWriter {
         perform_data_verification_(perform_data_verification),
         buffered_data_crc32c_checksum_(0),
         buffered_data_with_checksum_(buffered_data_with_checksum),
+        buf_(),
         s_key_list_(s_key_list),
         iv_high_(iv_high),
         iv_low_(iv_low) {

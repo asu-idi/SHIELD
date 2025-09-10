@@ -698,6 +698,11 @@ DBOptions* DBOptions::InitSSTEncryption() {
   const char *config_path = "../examples/c_client.config";
   ctx = init_SST(config_path);
 
+  if (ctx == nullptr) {
+    fprintf(stderr, "init_SST failed\n");
+    exit(1);
+  }
+
   return this;
 }
 
