@@ -32,9 +32,9 @@ EVP_PKEY *load_auth_public_key(const char *path) {
         return print_crypto_error_return_NULL("public key getting fail");
     }
     int id = EVP_PKEY_id(pub_key);
-    if (id != EVP_PKEY_RSA) {
-        return print_crypto_error_return_NULL("is not RSA Encryption file");
-    }
+    // if (id != EVP_PKEY_RSA) {
+    //     return print_crypto_error_return_NULL("is not RSA Encryption file");
+    // }
     fclose(pemFile);
     X509_free(cert);
     return pub_key;

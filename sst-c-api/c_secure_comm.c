@@ -147,7 +147,7 @@ static unsigned char *serialize_session_key_req_with_distribution_key(
     memcpy(ret + offset, name, name_length);
     offset += name_length;
     memcpy(ret + offset, temp, temp_length);
-    OPENSSL_free(temp);
+    // OPENSSL_free(temp);
     *ret_length = 1 + strlen(name) + temp_length;
     return ret;
 }
@@ -324,7 +324,7 @@ static int send_auth_request_message(unsigned char *serialized,
             SST_print_error("Failed sst_write_to_socket().");
             return -1;
         }
-        OPENSSL_free(enc);
+        // OPENSSL_free(enc);
     } else {
         unsigned int enc_length;
         unsigned char *enc = serialize_session_key_req_with_distribution_key(
@@ -351,7 +351,7 @@ static int send_auth_request_message(unsigned char *serialized,
             return -1;
         }
 
-        OPENSSL_free(enc);
+        // OPENSSL_free(enc);
     }
     return 0;
 }
@@ -408,7 +408,7 @@ int save_distribution_key(unsigned char *data_buf, SST_ctx_t *ctx,
     // parse decrypted_dist_key_buf to mac_key & cipher_key
     parse_distribution_key(&ctx->dist_key, decrypted_dist_key_buf);
     ctx->dist_key.enc_mode = ctx->config->encryption_mode;
-    free(decrypted_dist_key_buf);
+    // free(decrypted_dist_key_buf);
     return 0;
 }
 

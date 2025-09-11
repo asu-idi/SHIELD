@@ -5,9 +5,9 @@ cmake_minimum_required(VERSION 3.19)
 project(sst-lib VERSION 1.0.0 LANGUAGES C)
 
 # Check `openssl version -d` and copy the path to OPENSSL_ROOT_DIR
-if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
-  set(OPENSSL_ROOT_DIR "/usr/local/lib64")
-endif()
+# if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
+#   set(OPENSSL_ROOT_DIR "/usr/local/lib64")
+# endif()
 
 find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
@@ -40,7 +40,7 @@ if(MSVC)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 # Exclude errors, because some can use GNU-specific variadic arguments. This is done for only compiling the SST library.
 else()
-  target_compile_options(sst-c-api PUBLIC -Wall -Wextra -Wpedantic -Werror)
+  target_compile_options(sst-c-api PRIVATE)
 endif()
 
 # Set DEBUG flag for Debug builds
